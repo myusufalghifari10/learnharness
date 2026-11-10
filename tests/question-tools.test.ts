@@ -229,7 +229,10 @@ describe("quiz tool descriptions carry the complete, phase-correct example", () 
 		// string carries literal double backslashes, exactly what the model
 		// must type inside JSON.
 		assert.ok(desc.includes("A signal is $y=\\\\sin(2x)$"), "LaTeX command backslash shows doubled");
-		assert.ok(desc.includes("a LaTeX backslash is \\\\ and a newline is \\n"), "the one-line escaping hint");
+		assert.ok(desc.includes("a LaTeX backslash is \\\\, and a line break is ONE backslash + n"), "the one-line escaping hint");
+		// The 2026-11-11 double-escape correction: a model that writes `\\\\n`
+		// flattens the whole question into one unreadable line, so the hint says so.
+		assert.ok(desc.includes("Writing \\\\\\\\n (double) is not a line break"), "the double-escape warning");
 		assert.ok(!desc.includes("nodeId"), "probe example carries no phase metadata");
 	});
 

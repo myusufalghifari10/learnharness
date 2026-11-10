@@ -169,7 +169,7 @@ function quizDescription(delta: { name: "quiz" | "probe"; nodeId: boolean; types
 	const example = delta.nodeId ? { type: "check" as const, nodeId: "chain-rule", ...quizExampleBody } : quizExampleBody;
 	return (
 		base +
-		"\nExample arguments — copy the escaping exactly: inside JSON strings a LaTeX backslash is \\\\ and a newline is \\n.\n```json\n" +
+		"\nExample arguments — copy the escaping exactly: inside a JSON string a LaTeX backslash is \\\\, and a line break is ONE backslash + n.\\nWriting \\\\\\\\n (double) is not a line break: it puts a literal backslash and n on the learner's screen and the code block collapses into one unreadable line.\n```json\n" +
 		JSON.stringify(example, null, 2) +
 		"\n```" +
 		(delta.nodeId ? " The example's nodeId is illustrative — copy an exact id from this session's plan_init." : "")

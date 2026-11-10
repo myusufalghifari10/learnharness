@@ -177,6 +177,41 @@ export function outsideTexComments(body: string, transform: (part: string) => st
 
 /** Document escapes are not arbitrary string decoding. Complete known TeX
  * words win over the prefix `\\n`; code is never inspected or rewritten. */
+/** Document escapes are not arbitrary string decoding. Complete known TeX
+ * words win over the prefix `\\n`; code is never inspected or rewritten. */
+function decodeLayoutEscapes(part: string, knownN: (name: string) => boolean): string {
+	return part.replace(/(\\+)(n[A-Za-z]*)/g, (whole: string, slashes: string, name: string, offset: number) => {
+		if (slashes.length % 2 === 0 || knownN(name)) return whole;
+		const word = part.slice(0, offset).split(/\s/).at(-1) ?? "";
+		// Path guard: `C:\\new\\x` and `https://host/n…` must survive. It only
+		// applies to a multi-letter tail (a real path segment): a bare `\n` after
+		// `n:` is code (`while i < n:\n    body`), not a Windows drive letter.
+		if (name.length > 1 && /^(?:[A-Za-z]:[\\/]|https?:\/\/|\/)/.test(word + whole)) return whole;
+		return slashes.slice(0, -1) + "\n" + name.slice(1);
+	});
+}
+
+/**
+ * A whole document delivered on ONE line: the model escaped its own newlines
+ * twice, so every fence and list marker sits inside what Markdown reads as one
+ * inline-code span. recoverDocumentLayout is then RIGHT to protect that span —
+ * which leaves the learner with one unreadable line (observed 2026-11-11, a
+ * probe question beginning `Apa yang dicetak…```python\ndef hitung(n):…`).
+ *
+ * Unflattening is display-only and evidence-gated: no real newline ANYWHERE, a
+ * fence marker, and at least two odd-backslash `\n` tokens. Under those
+ * conditions the text cannot be Markdown the model meant to keep on one line,
+ * so the same decoding rules apply — code spans included, because the
+ * flattening is precisely what swallowed the fence into one.
+ */
+export function unflattenEscapedDocument(text: string): string {
+	if (text.includes("\n")) return text;
+	if (!text.includes("```")) return text;
+	const tokens = [...text.matchAll(/(\\+)(n[A-Za-z]*)/g)].filter(m => m[1]!.length % 2 === 1);
+	if (tokens.length < 2) return text;
+	return decodeLayoutEscapes(text, name => knownTexCommand(name));
+}
+
 export function recoverDocumentLayout(text: string): string {
 	const spans = readContentSpans(text);
 	const candidates = spans.filter(span => span.kind !== "code").map(span => span.raw).join("\u0000");
@@ -190,12 +225,7 @@ export function recoverDocumentLayout(text: string): string {
 	const structural = evidence.length >= 2 || candidates.includes("\\n\\n") || (evidence.length > 0 &&
 		[...candidates.matchAll(/(\\+)([A-Za-z]+)/g)].some(m => m[1]!.length % 2 === 0 && knownTexCommand(m[2]!)));
 	if (!structural) return text;
-	const decode = (part: string) => part.replace(/(\\+)(n[A-Za-z]*)/g, (whole: string, slashes: string, name: string, offset: number) => {
-		if (slashes.length % 2 === 0 || knownN(name)) return whole;
-		const word = part.slice(0, offset).split(/\s/).at(-1) ?? "";
-		if (/^(?:[A-Za-z]:[\\/]|https?:\/\/|\/)/.test(word + whole)) return whole;
-		return slashes.slice(0, -1) + "\n" + name.slice(1);
-	});
+	const decode = (part: string) => decodeLayoutEscapes(part, knownN);
 	const projected = spans.map(span => ({ span, body: span.kind === "math" ? outsideTexComments(span.body, decode) : span.kind === "code" ? span.raw : decode(span.raw) }));
 	let out = "";
 	for (let i = 0; i < projected.length; i++) {
