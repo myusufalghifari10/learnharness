@@ -11,7 +11,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { resolveSearchEngineFor, tavilyProvider, braveProvider, exaProvider, firecrawlProvider, ollamaProvider } from "../src/server/search.ts";
+import { resolveSearchEngineFor, tavilyProvider, braveProvider, exaProvider, firecrawlProvider, ollamaProvider, searxngProvider } from "../src/server/search.ts";
 import { SEARCH_ENGINES, isSearchEngineId, type SearchEngineId } from "../src/core/search.ts";
 
 describe("resolveSearchEngineFor (the auto-detect decision)", () => {
@@ -285,9 +285,51 @@ describe("ollamaProvider (hosted search only)", () => {
 	});
 });
 
-describe("five-engine catalog and resolution", () => {
+describe("searxngProvider (self-hosted local stack)", () => {
+	it("GETs <base>/search with format=json and lifts Basic credentials out of the URL", async () => {
+		const provider = searxngProvider("http://admin:secret@search.coding.localhost/search", stubFetch(
+			{ results: [
+				{ title: "Example", url: "https://example.com/s", content: "line1\nline2" },
+				{ url: "https://example.com/untitled" },
+				{ url: "javascript:alert(1)" }, null,
+			] },
+			(url, init) => {
+				assert.equal(url, "http://search.coding.localhost/search?q=test+query&format=json");
+				assert.equal(init.method, undefined, "a plain GET, not a POST");
+				const headers = init.headers as Record<string, string>;
+				assert.equal(headers.accept, "application/json");
+				assert.equal(headers.authorization, `Basic ${Buffer.from("admin:secret").toString("base64")}`);
+				assert.ok(init.signal);
+			},
+		));
+		assert.deepEqual(await provider.search("test query", 5), [
+			{ title: "Example", url: "https://example.com/s", snippet: "line1 line2" },
+			{ title: "https://example.com/untitled", url: "https://example.com/untitled", snippet: "" },
+		]);
+	});
+
+	it("appends /search to a bare base URL and omits auth without credentials", async () => {
+		const provider = searxngProvider("http://127.0.0.1:8080", stubFetch({ results: [{ title: "a", url: "https://a.example", content: "x" }, { title: "b", url: "https://b.example", content: "y" }] }, (url, init) => {
+			assert.equal(url, "http://127.0.0.1:8080/search?q=q&format=json");
+			assert.equal((init.headers as Record<string, string>).authorization, undefined);
+		}));
+		// The instance has no count parameter: the adapter bounds the slice itself.
+		assert.equal((await provider.search("q", 1)).length, 1);
+	});
+
+	it("rejects non-http(s) endpoints and malformed or failed responses without echoing bodies", async () => {
+		assert.throws(() => searxngProvider("ftp://host/search"), /must use http or https/);
+		assert.throws(() => searxngProvider("not a url"), /absolute http\(s\) URL/);
+		const malformed = searxngProvider("http://host/search", async () => new Response(JSON.stringify({ results: null })));
+		await assert.rejects(malformed.search("q", 5), { message: "SearXNG search API returned an invalid response" });
+		const denied = searxngProvider("http://host/search", async () => new Response("fake-secret-123456", { status: 401 }));
+		await assert.rejects(denied.search("q", 5), { message: "SearXNG search API 401" });
+	});
+});
+
+describe("engine catalog and resolution", () => {
 	it("pins the approved Automatic order independently of table-driven tests", () => {
-		assert.deepEqual(SEARCH_ENGINES.map(({ id }) => id), ["tavily", "brave", "exa", "firecrawl", "ollama"]);
+		assert.deepEqual(SEARCH_ENGINES.map(({ id }) => id), ["tavily", "brave", "exa", "firecrawl", "ollama", "searxng"]);
 		assert.equal(isSearchEngineId("chatgpt"), false);
 		assert.equal(isSearchEngineId("deepseek"), false);
 		for (const value of [null, {}, 1, "", "toString"]) assert.equal(isSearchEngineId(value), false);

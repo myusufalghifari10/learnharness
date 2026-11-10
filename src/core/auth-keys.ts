@@ -66,6 +66,12 @@ export const AUTH_KEYS: readonly AuthKeyInfo[] = [
 		description: "Hosted web search at ollama.com — requires an Ollama API key. Setting it activates search, not local models.",
 		docsUrl: "https://ollama.com/settings/keys",
 	},
+	{
+		id: "SEARXNG_URL",
+		label: "SearXNG (local)",
+		description: "Self-hosted SearXNG instance used as the researcher's search engine. Paste the search URL, with Basic credentials when the instance needs them: http://user:pass@host/search",
+		docsUrl: "https://docs.searxng.org/",
+	},
 ] as const;
 
 const AUTH_KEY_IDS: ReadonlySet<string> = new Set(AUTH_KEYS.map((k) => k.id));
@@ -203,6 +209,11 @@ export function validateKeyShape(id: string, rawValue: string): KeyShapeResult {
 		case "DEEPGRAM_API_KEY":
 			// No public format — the length floor only catches truncated pastes.
 			return nonEmpty(20);
+		case "SEARXNG_URL":
+			// Not a secret: the instance's search URL, optionally with Basic creds.
+			return /^https?:\/\/[^\s]+$/.test(value)
+				? { ok: true }
+				: { ok: false, error: `${id} must be an http(s) URL with no whitespace (e.g. http://user:pass@host/search)` };
 		default:
 			return { ok: false, error: `unknown key "${id}" (supported: ${[...AUTH_KEY_IDS].join(", ")})` };
 	}
