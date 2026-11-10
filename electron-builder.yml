@@ -83,6 +83,23 @@ files:
   - node_modules/argparse/**/*
   # Main-process ID-token signature verification (no bundled OAuth implementation).
   - node_modules/jose/**/*
+  # Coding workspace (2026-11-11): main requires node-pty to host the real
+  # nvim/shell panes. Same rule as above — without an explicit positive the
+  # '!**/*' negation would drop it, and main would crash on require. The
+  # package is N-API (no Electron rebuild needed), and node-addon-api is
+  # build-time headers only (nothing in node-pty/lib requires it), so it stays
+  # out of the payload.
+  - node_modules/node-pty/**/*
+  # 1.1.0 ships prebuilds for darwin/win32 (used at runtime on those targets)
+  # and none for Linux, where node-gyp builds build/Release instead. The
+  # Windows .pdb debug symbols are 53 MB of dead weight in every install and
+  # are never read at runtime — keep the binaries, drop the symbols.
+  - "!node_modules/node-pty/prebuilds/**/*.pdb"
+# Native addon: a .node cannot dlopen from the read-only asar, so the pty
+# binary ships unpacked next to it (Electron extracts on dlopen otherwise,
+# which we do not want to rely on).
+asarUnpack:
+  - node_modules/node-pty/**/*
 extraResources:
   # Attribution/license for the bounded local Pi cutoff-selector port.
   - from: docs/compaction-accounting.md

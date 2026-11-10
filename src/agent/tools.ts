@@ -24,6 +24,7 @@ import { lsTool } from "./tools/ls.ts";
 import { findTool } from "./tools/find.ts";
 import { grepTool } from "./tools/grep.ts";
 import { createShowImageTool } from "./tools/show-image.ts";
+import { openInEditorTool } from "./tools/open-in-editor.ts";
 import { healToolRecord } from "./tools/heal.ts";
 import type { GraphStore } from "../core/ports.ts";
 
@@ -327,6 +328,11 @@ export function createProberTools(
 				ls: lsTool,
 				find: findTool,
 				grep: grepTool,
+				// The coding workspace (2026-11-11): the prober can show the learner
+				// a practice file in the running editor while assessing the edge.
+				// Read-only like the rest of the learner-fs set: it opens a buffer and
+				// returns the workspace path, it never writes.
+				open_in_editor: openInEditorTool,
 				// Job dispatch in the probe phase (owner ruling, 2026-09-20):
 				// research + pdf are ALWAYS available in every phase — the
 				// prober can verify facts or read learner PDFs while assessing.
@@ -458,6 +464,10 @@ export function createTeacherTools(
 			ls: lsTool,
 			find: findTool,
 			grep: grepTool,
+			// The coding workspace (2026-11-11): the teacher shows a practice file
+			// in the learner's running editor and gets the workspace path back for
+			// ls/read. Read-only (fs-shared.ts posture) — nvim owns the writing.
+			open_in_editor: openInEditorTool,
 			// The learner-image display twin of read (issue #363): teacher
 			// only, always on — it shows the learner their own file.
 			show_image: createShowImageTool(ctx),

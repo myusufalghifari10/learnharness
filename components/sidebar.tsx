@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { MenuShell } from "@/components/menu-shell";
 import { DeleteSessionDialog } from "@/components/delete-session-dialog";
 import type { ChatDeleteMode } from "@/src/core";
-import { DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon } from "lucide-react";
+import { DumbbellIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, PlusIcon, SearchIcon, SettingsIcon, TerminalIcon } from "lucide-react";
 import { ActivitySection } from "@/components/activity-dock";
 import { CoverageMenuBlock } from "@/components/extraction-coverage";
 import { LhMark } from "@/components/lh-mark";
@@ -82,6 +82,26 @@ declare global {
 			checkForUpdates?: () => Promise<void>;
 			installUpdate?: () => void;
 			onOpenSettings?: (cb: (section: string) => void) => () => void;
+			/** Coding workspace (2026-11-11): real nvim + shell ptys hosted by main.
+			 *  The renderer never names a binary, cwd, env or argv. */
+			code?: {
+				start: (args: { kind: "editor" | "shell"; scope: string; cols: number; rows: number }) => Promise<{
+					ok: boolean;
+					id?: string;
+					cwd?: string;
+					socket?: string | null;
+					error?: string;
+					reused?: boolean;
+				}>;
+				write: (args: { id: string; data: string }) => void;
+				resize: (args: { id: string; cols: number; rows: number }) => void;
+				kill: (id: string) => void;
+				/** True while a terminal has focus: main releases menu accelerators. */
+				focus: (focused: boolean) => void;
+				state: () => Promise<Array<{ id: string; kind: string; cwd: string; socket: string | null; pid: number | null; cols: number; rows: number }>>;
+				onData: (cb: (payload: { id: string; data: string }) => void) => () => void;
+				onExit: (cb: (payload: { id: string; code: number }) => void) => () => void;
+			};
 		};
 	}
 }
@@ -694,10 +714,11 @@ function SessionsSidebar() {
 					</Hint>
 				</div>
 
-				{/* Two doors, STACKED (owner round 8, 2026-10-05 — was a
-				    half/half row): full-width rows read cleaner and give the
-				    labels room; teaching keeps the original draft route,
-				    practice carries its mode. */}
+				{/* Three doors, STACKED (owner round 8, 2026-10-05 — was a
+				    half/half row; Code joined 2026-11-11): full-width rows read
+				    cleaner and give the labels room; teaching keeps the original
+				    draft route, practice carries its mode, Code opens the real
+				    nvim workspace. */}
 				<div className="mx-3 mb-2 flex flex-col gap-1.5">
 					<button
 						type="button"
@@ -718,6 +739,20 @@ function SessionsSidebar() {
 						<DumbbellIcon className="size-3" />
 						Practice
 						<span className="sr-only">create a new practice session</span>
+					</button>
+					<button
+						type="button"
+						data-testid="open-code"
+						onClick={() => router.push("/code")}
+						aria-current={pathname === "/code" ? "page" : undefined}
+						className={cn(
+							"flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs uppercase tracking-wider transition-colors hover:bg-accent hover:text-foreground",
+							pathname === "/code" ? "bg-accent text-foreground" : "text-muted-foreground",
+						)}
+					>
+						<TerminalIcon className="size-3" />
+						Code
+						<span className="sr-only">open the coding workspace</span>
 					</button>
 				</div>
 

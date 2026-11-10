@@ -36,6 +36,7 @@ import {
 	KEYBOARD_ACTIONS,
 } from "@/src/core";
 import { isDictationActive } from "@/components/dictation";
+import { isTerminalFocused } from "@/components/code/focus.ts";
 import { useSettingsDialog } from "@/components/settings/settings-dialog.tsx";
 
 // Re-exported for the contract pin (tests/keyboard-toggle-sidebar.test.ts):
@@ -59,6 +60,11 @@ export function KeyboardShortcuts() {
 
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
+			// A focused terminal owns the keyboard (2026-11-11): Tab is shell
+			// completion, Esc leaves vim's insert mode, Ctrl+W is vim's window
+			// prefix — the app's dispatcher must not steal any of them. Main
+			// releases the Electron menu accelerators for the same reason.
+			if (isTerminalFocused()) return;
 			// ── Tab is dead (owner, 2026-09-17): preventDefault even when
 			// nothing is bound to it — browser tab-focus is abandoned, and
 			// the default action runs after dispatch, so suppressing it here

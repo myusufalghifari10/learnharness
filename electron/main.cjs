@@ -31,6 +31,8 @@ const { attachChatGPTChild, trustedSender, chatGPTControl } = require("./chatgpt
 const { createSubscriptions, loadSubscriptionSDK } = require("./subscriptions.cjs");
 const { attachSubscriptionChild, subscriptionControl } = require("./subscription-ipc.cjs");
 const { desktopAPIHeaders } = require("./desktop-api.cjs");
+const { createCodeSessions, resolveDataDir } = require("./code-session.cjs");
+const { CODE_CHANNELS, registerCodeIpc } = require("./code-ipc.cjs");
 const { openWebSubscriptionBrowser } = require("./web-subscription-browser.cjs");
 const { randomBytes } = require("node:crypto");
 const { spawn } = require("node:child_process");
@@ -45,6 +47,16 @@ const SIDEBAR_AUTOCLOSE = 928;
 
 const PRODUCT_NAME = "LearnHarness";
 
+/** Coding workspace (native nvim/shell panes, 2026-11-11): the PTY host is
+ *  created in main() once app paths exist and torn down on every quit path.
+ *  Windows in this set have a FOCUSED terminal: their menu accelerators are
+ *  released so LazyVim's bindings reach the pty, and the zoom catcher stands
+ *  down (Ctrl+-/Ctrl+0 are vim motions there, not zoom). Keyed by
+ *  webContents id (not window id) so a reused window id cannot inherit a
+ *  stale claim; every load also clears it. */
+let codeSessions = null;
+const codeFocusedWindows = new Set();
+
 // APP NAME → userData (owner, 2026-10-10): the Application Support dir is
 // exactly "LearnHarness" in dev AND packaged. Packaged Electron would
 // otherwise derive it from package.json "name" (now lowercase
@@ -53,7 +65,11 @@ const PRODUCT_NAME = "LearnHarness";
 // "LearnHarness-dev".
 app.setName(PRODUCT_NAME);
 const AUTH_FILE = () => path.join(app.getPath("userData"), "auth.json");
-const DATA_DIR = () => path.join(app.getPath("userData"), "data");
+// One root for the workspace and for the AGENT that reads it (2026-11-11): an
+// explicit LH_DATA_DIR wins — `npm run desktop:dev` exports it so the `next dev`
+// server and this shell agree, otherwise the coding tools would look for the
+// state file in a different tree than the pty host wrote it to.
+const DATA_DIR = () => resolveDataDir(process.env, app.getPath("userData"));
 
 /** The packaged standalone server (extraResources → Resources/server).
  *  In dev LH_DEV_URL short-circuits everything: no spawn, no packaging —
@@ -380,8 +396,14 @@ function createWindow(url) {
 	// two applies any given zoom keypress.
 	win.webContents.on("did-finish-load", () => {
 		win.webContents.send("lh:zoom", win.webContents.getZoomFactor());
+		// A (re)loaded page owns no pty yet: drop any focus claim so a reload
+		// or crash cannot leave the app's own accelerators released.
+		codeFocusedWindows.delete(win.webContents.id);
+		if (typeof win.webContents.setIgnoreMenuShortcuts === "function") win.webContents.setIgnoreMenuShortcuts(false);
 	});
 	win.webContents.on("before-input-event", (event, input) => {
+		// A focused terminal owns the keyboard (see codeFocusedWindows).
+		if (codeFocusedWindows.has(win.webContents.id)) return;
 		if (input.type !== "keyDown" || !(input.meta || input.control)) return;
 		if (input.key === "=" || input.key === "+") zoomStep(win, +1);
 		else if (input.key === "-") zoomStep(win, -1);
@@ -636,6 +658,9 @@ async function main() {
 	app.on("window-all-closed", () => {
 		chatgpt?.pause();
 		subscriptions?.pause();
+		// Open windows are the only owners of the PTYs: closing them must not leave
+		// nvim or a login shell running with no UI (same rule as killServer).
+		codeSessions?.killAll();
 		// macOS convention: the app stays resident, reactivated from the Dock.
 		if (process.platform !== "darwin") app.quit();
 	});
@@ -644,6 +669,10 @@ async function main() {
 	app.on("before-quit", killServer);
 	process.on("exit", killServer);
 	process.on("SIGHUP", killServer);
+	// Same rule for the coding PTYs: nvim + shells are children of this app.
+	app.on("before-quit", () => codeSessions?.killAll());
+	process.on("exit", () => codeSessions?.killAll());
+	process.on("SIGHUP", () => codeSessions?.killAll());
 
 	await app.whenReady();
 
@@ -713,6 +742,57 @@ async function main() {
 	ipcMain.handle("lh:attachment:pick", (event, mode) => pickAttachmentPath(event, mode, {
 		BrowserWindow, dialog, trustedAppWindows, origin: new URL(url).origin,
 	}));
+
+	// Coding workspace (2026-11-11): a real nvim and a real shell per pane,
+	// spawned by THIS process so the editor survives a server restart and the
+	// menu/zoom handling below can release the keyboard. Sessions broadcast
+	// their pty output to every app window; the handlers themselves live in
+	// code-ipc.cjs so they stay testable without Electron.
+	//
+	// Guarded on purpose: a broken native addon (a packaging regression, a
+	// missing .node) must cost the Code view, never the whole app — every
+	// other desktop channel keeps working and the panes fail with their own
+	// error text.
+	try {
+		codeSessions = createCodeSessions({
+			dataDir: DATA_DIR(),
+			onData: (id, data) => {
+				for (const win of BrowserWindow.getAllWindows()) {
+					try {
+						win.webContents.send(CODE_CHANNELS.data, { id, data });
+					} catch {
+						/* window mid-teardown */
+					}
+				}
+			},
+			onExit: (id, code) => {
+				for (const win of BrowserWindow.getAllWindows()) {
+					try {
+						win.webContents.send(CODE_CHANNELS.exit, { id, code });
+					} catch {
+						/* window mid-teardown */
+					}
+				}
+			},
+			log: (line) => log(line),
+		});
+		registerCodeIpc({
+			ipcMain,
+			sessions: codeSessions,
+			isTrusted: (event) => trustedAppWindows.has(BrowserWindow.fromWebContents(event.sender)) && trustedSender(event, new URL(url).origin, BrowserWindow),
+			onFocus: (focused, event) => {
+				const sender = event.sender;
+				if (!sender) return;
+				if (focused) codeFocusedWindows.add(sender.id);
+				else codeFocusedWindows.delete(sender.id);
+				// Released while a terminal types: no menu role may eat Ctrl+C/W/...
+				if (typeof sender.setIgnoreMenuShortcuts === "function") sender.setIgnoreMenuShortcuts(focused);
+			},
+		});
+	} catch (err) {
+		codeSessions = null;
+		log(`coding workspace unavailable: ${err?.stack ?? err}`);
+	}
 
 	installMenu();
 

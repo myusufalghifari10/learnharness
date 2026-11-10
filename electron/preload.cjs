@@ -27,6 +27,15 @@
  *   window.lh.onOpenSettings(cb) — menu navigation, buffered until React
  *   subscribes after a window is reopened. Browser builds have no bridge.
  *
+ *   window.lh.code — the coding workspace (2026-11-11): a real nvim and a
+ *   real shell per pane, hosted by main (electron/code-session.cjs). The
+ *   renderer only ever sends keystrokes, terminal geometry, a session id,
+ *   and a scope name — never a binary, cwd, env or argv.
+ *     start({kind, scope, cols, rows}) → {ok, id, cwd, socket|error}
+ *     write({id, data}) / resize({id, cols, rows}) / kill({id})
+ *     focus(boolean) — releases menu accelerators while a terminal types
+ *     onData(cb) / onExit(cb) — pty output, returns unsubscribe
+ *
  * Channel names are mirrored in electron/main.cjs — keep them in sync.
  */
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
@@ -84,6 +93,24 @@ contextBridge.exposeInMainWorld("lh", {
 		return () => ipcRenderer.removeListener("lh:zoom", listener);
 	},
 	getZoom: () => ipcRenderer.invoke("lh:zoom:get"),
+	code: {
+		start: (args) => ipcRenderer.invoke("lh:code:start", args),
+		write: (args) => ipcRenderer.send("lh:code:write", args),
+		resize: (args) => ipcRenderer.send("lh:code:resize", args),
+		kill: (id) => ipcRenderer.send("lh:code:kill", { id }),
+		focus: (focused) => ipcRenderer.send("lh:code:focus", focused === true),
+		state: () => ipcRenderer.invoke("lh:code:state"),
+		onData: (cb) => {
+			const listener = (_event, payload) => cb(payload);
+			ipcRenderer.on("lh:code:data", listener);
+			return () => ipcRenderer.removeListener("lh:code:data", listener);
+		},
+		onExit: (cb) => {
+			const listener = (_event, payload) => cb(payload);
+			ipcRenderer.on("lh:code:exit", listener);
+			return () => ipcRenderer.removeListener("lh:code:exit", listener);
+		},
+	},
 	onUpdateStatus: (cb) => {
 		const listener = (_event, status) => cb(status);
 		ipcRenderer.on("lh:update-status", listener);
