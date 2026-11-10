@@ -49,6 +49,7 @@ import { registerTurn, rememberTurnFailure, unregisterTurn } from "./turn-runs.t
 import { persistTurn, triggerExtraction, TurnPersistenceError } from "./turn-service.ts";
 import { hasProbeDone, hasUnresolvedQuestion } from "../core/native-messages.ts";
 import { composeInstructions } from "../agent/teacher-agent.ts";
+import { describeCodingWorkspaceStatus } from "../agent/coding-workspace-status.ts";
 import { ensureCompacted, kickCompaction, effectiveThresholdTokens } from "./compaction.ts";
 import { catalogContextLimits, refreshConnectionCatalog } from "./model-catalog.ts";
 import { emit } from "../core/events.ts";
@@ -424,6 +425,16 @@ export async function handleChatInput(
 	// Provider-qualified stamp (model slots wave): matches the price table's
 	// provider:id keys.
 	const modelId = `${engine.model.provider}:${engine.model.id}`;
+	// The live coding-workspace block (2026-11-11): the model gets the workspace
+	// path, whether the Code view's Neovim is running, and the buffer on screen,
+	// so it stops guessing (and stops asking for a path it could read itself).
+	// Best-effort by construction: a status failure must never fail the turn.
+	let codingWorkspaceStatus: string | undefined;
+	try {
+		codingWorkspaceStatus = (await describeCodingWorkspaceStatus({ env: process.env })).text;
+	} catch (error) {
+		console.warn(`[chat ${chatId}] coding workspace status unavailable:`, error);
+	}
 	// Tests inject a factory: the agent is stateless per turn, so each
 	// request builds a fresh one off the record — the factory mirrors that
 	// seam exactly. Wave B: the record IS the agent state (native messages;
@@ -460,6 +471,8 @@ export async function handleChatInput(
 		// point as the tool delta — the agent layer composes the system
 		// prompt fresh per turn, swapping in any enabled override segments.
 		promptSwitches: effective.agent.prompts,
+		// The coding workspace facts for THIS turn (see above).
+		workspaceStatus: codingWorkspaceStatus,
 	};
 	// PRACTICE BRANCH (owner design, 2026-10-04): a kind:"practice"
 	// session builds the practitioner from turn 1 — no prober→teacher

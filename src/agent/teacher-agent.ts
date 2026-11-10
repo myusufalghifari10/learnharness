@@ -123,6 +123,12 @@ export interface AgentBuildOptions {
 	 *  fresh per turn, honoring enabled overrides (switch on + file
 	 *  exists); absent → the cached pure-source composition. */
 	promptSwitches?: Record<string, boolean>;
+	/** The live coding-workspace block (2026-11-11): the workspace path, whether
+	 *  the Code view's Neovim is running, and the active buffer, rebuilt per
+	 *  turn by describeCodingWorkspaceStatus. Appended to the system prompt so
+	 *  the model stops guessing (and never asks the learner for a path it can
+	 *  already see). Absent/empty → the prompt is byte-identical to before. */
+	workspaceStatus?: string;
 	/** Native conversation identity: the existing persisted chat id, reused
 	 * across reconstructed prober, teacher, and practice Agents.
 	 * Debug: when set AND LH_PROVIDER_EVENTS=1, raw provider stream events
@@ -176,6 +182,14 @@ function makeQuestionStopper(kind: AgentKind) {
 	};
 }
 
+/** Append the per-turn coding-workspace block to a composed prompt. Exported
+ *  for tests: the append is the seam, so a test pins that the block lands at
+ *  the END of the composed prompt, before the send-to-user rule. */
+export function withWorkspaceStatus(composedPrompt: string, workspaceStatus?: string): string {
+	const block = workspaceStatus?.trim();
+	return block ? `${composedPrompt}\n\n---\n\n${block}` : composedPrompt;
+}
+
 function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: AgentTool<any, any>[]) {
 	// Practice never reaches the role fallback (the handler ALWAYS injects
 	// the session's conversation engine — practice rides the same
@@ -187,7 +201,9 @@ function baseAgentOptions(kind: AgentKind, opts: AgentBuildOptions, tools: Agent
 	const composedPrompt = opts.promptSwitches
 		? composeInstructions(kind, opts.promptSwitches)
 		: composedInstructions[kind]!;
-	const systemPrompt = narrationGuard ? `${composedPrompt}\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}` : composedPrompt;
+	const systemPrompt = narrationGuard
+		? withWorkspaceStatus(composedPrompt, opts.workspaceStatus) + `\n\n---\n\n${SEND_TO_USER_DELIVERY_RULE}`
+		: withWorkspaceStatus(composedPrompt, opts.workspaceStatus);
 	// Debug recorder (owner, 2026-10-04): raw provider events when
 	// LH_PROVIDER_EVENTS=1 and the caller handed a chatId; undefined is
 	// the normal no-observer path (tests, env-off).

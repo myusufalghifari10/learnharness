@@ -103,6 +103,7 @@ describe("prober graph tools — registration", () => {
 			"probe_done",
 			"read",
 			"research",
+			"write_workspace_file",
 		]);
 	});
 });
