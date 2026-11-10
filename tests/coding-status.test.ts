@@ -75,9 +75,20 @@ describe("describeCodingWorkspaceStatus", () => {
 		assert.equal(status.stale, false);
 		assert.equal(status.pid, 4242);
 		assert.equal(status.activeFile, join(root, "exercise.py"));
+		assert.equal(status.activeBufferAnswered, true);
 		assert.match(status.text, /Editor: running \(Neovim, pid 4242\)/);
 		assert.match(status.text, /Active buffer: .*exercise\.py/);
 		assert.deepEqual(calls[0]!.slice(0, 2), ["--server", socket]);
+	});
+
+	it("an empty buffer name is a FACT (start screen), not an unknown", async () => {
+		const { dataDir, root } = workspace();
+		liveEditor(root);
+		const status = await describeCodingWorkspaceStatus({ dataDir, env, probe: async () => "\n" });
+		assert.equal(status.running, true);
+		assert.equal(status.activeFile, null);
+		assert.equal(status.activeBufferAnswered, true);
+		assert.match(status.text, /Active buffer: none \(the editor is on its start screen\)/);
 	});
 
 	it("degrades to an unknown buffer when the probe fails", async () => {
@@ -92,6 +103,7 @@ describe("describeCodingWorkspaceStatus", () => {
 		});
 		assert.equal(status.running, true);
 		assert.equal(status.activeFile, null);
+		assert.equal(status.activeBufferAnswered, false);
 		assert.match(status.text, /Active buffer: unknown/);
 	});
 

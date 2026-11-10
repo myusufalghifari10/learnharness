@@ -38,6 +38,9 @@ export type CodingWorkspaceStatus = {
 	stale: boolean;
 	pid: number | null;
 	activeFile: string | null;
+	/** True when the running editor answered the buffer probe at all: an empty
+	 *  answer (start screen) is a fact, a failed probe is not. */
+	activeBufferAnswered: boolean;
 	/** The prompt block, no trailing newline. */
 	text: string;
 };
@@ -90,28 +93,33 @@ function samePath(a: string, b: string): boolean {
 }
 
 /**
- * Read the running editor's current buffer. Returns null for every failure
- * mode (no binary, dead socket, timeout, a path outside the workspace): the
- * status block must never make a turn fail.
+ * Read the running editor's current buffer. `answered` separates "no file is
+ * open" (the dashboard: an empty name, exit 0) from "the editor did not
+ * answer" (dead socket, timeout): the first is a fact worth telling the model,
+ * the second is an honest unknown. Every failure mode returns a value, never a
+ * throw: the status block must never make a turn fail.
  */
 async function probeActiveFile(
 	root: string,
 	socket: string,
 	env: Record<string, string | undefined>,
 	probe: ProbeFn,
-): Promise<string | null> {
+): Promise<{ file: string | null; answered: boolean }> {
 	const nvim = resolveNvimBinary(env, isExecutable);
-	if (!nvim) return null;
+	if (!nvim) return { file: null, answered: false };
+	let out: string;
 	try {
-		const out = await probe(nvim, ["--server", socket, "--remote-expr", "expand('%:p')"], { env: editorClientEnv(env) });
-		const candidate = out.trim();
-		if (!candidate) return null;
-		const relative = path.relative(root, path.resolve(root, candidate));
-		if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) return null;
-		return candidate;
+		out = await probe(nvim, ["--server", socket, "--remote-expr", "expand('%:p')"], { env: editorClientEnv(env) });
 	} catch {
-		return null;
+		return { file: null, answered: false };
 	}
+	const candidate = out.trim();
+	if (!candidate) return { file: null, answered: true };
+	const relative = path.relative(root, path.resolve(root, candidate));
+	if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) {
+		return { file: null, answered: true };
+	}
+	return { file: candidate, answered: true };
 }
 
 function statusText(input: {
@@ -120,6 +128,7 @@ function statusText(input: {
 	stale: boolean;
 	pid: number | null;
 	activeFile: string | null;
+	activeBufferAnswered: boolean;
 }): string {
 	const lines = ["## Coding workspace (live)", "", `Workspace: ${input.root}`];
 	if (input.running) {
@@ -127,7 +136,9 @@ function statusText(input: {
 		lines.push(
 			input.activeFile
 				? `Active buffer: ${input.activeFile}`
-				: "Active buffer: unknown (the running editor did not answer)",
+				: input.activeBufferAnswered
+					? "Active buffer: none (the editor is on its start screen)"
+					: "Active buffer: unknown (the editor did not answer)",
 		);
 	} else if (input.stale) {
 		lines.push("Editor: not reachable (stale session state); ask the learner to reopen the Code view.");
@@ -144,6 +155,7 @@ function status(input: {
 	stale: boolean;
 	pid: number | null;
 	activeFile: string | null;
+	activeBufferAnswered: boolean;
 }): CodingWorkspaceStatus {
 	return { ...input, text: statusText(input) };
 }
@@ -154,13 +166,21 @@ export async function describeCodingWorkspaceStatus(deps: CodingWorkspaceStatusD
 	const root = workspaceRoot(deps.dataDir ?? PATHS.data, scope);
 	const state = await readEditorState(root);
 	if (!state) {
-		return status({ root, scope, running: false, stale: false, pid: null, activeFile: null });
+		return status({ root, scope, running: false, stale: false, pid: null, activeFile: null, activeBufferAnswered: false });
 	}
 	const expectedSocket = editorSocketPath(root, scope);
 	const socketPresent = await fs.access(state.socket).then(() => true, () => false);
 	if (state.socket !== expectedSocket || !samePath(state.cwd, root) || !socketPresent) {
-		return status({ root, scope, running: false, stale: true, pid: null, activeFile: null });
+		return status({ root, scope, running: false, stale: true, pid: null, activeFile: null, activeBufferAnswered: false });
 	}
-	const activeFile = await probeActiveFile(root, state.socket, env, deps.probe ?? defaultProbe);
-	return status({ root, scope, running: true, stale: false, pid: state.pid, activeFile });
+	const buffer = await probeActiveFile(root, state.socket, env, deps.probe ?? defaultProbe);
+	return status({
+		root,
+		scope,
+		running: true,
+		stale: false,
+		pid: state.pid,
+		activeFile: buffer.file,
+		activeBufferAnswered: buffer.answered,
+	});
 }
