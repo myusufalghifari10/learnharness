@@ -46,6 +46,15 @@ export interface SubagentRunOptions {
 	 *  "job:<role>"). Absent or env-off → no observer.
 	 *  Also identifies the source in opt-in LH_BACKGROUND_CAPTURE captures. */
 	chatId?: string;
+	/** Cap behaviour (2026-11-11): a run that stops on `maxTurns` used to hand
+	 *  its caller whatever the model was doing at that moment — mid-search
+	 *  narration, or nothing at all (3 of 4 researcher jobs came back as "the
+	 *  researcher produced no text"). With this on, the cap ends the tool phase,
+	 *  every tool is withdrawn, and ONE more turn writes the deliverable from
+	 *  what was already gathered. The cap stays a budget, not a cliff. */
+	synthesizeOnCap?: boolean;
+	/** The instruction for that last turn (defaults to the shared wording). */
+	synthesisPrompt?: string;
 }
 
 export interface SubagentRunResult {
@@ -54,6 +63,12 @@ export interface SubagentRunResult {
 	/** The final assistant text (the deliverable). */
 	text: string;
 }
+
+/** The last-turn instruction when the step budget runs out (see
+ *  SubagentRunOptions.synthesizeOnCap). It says the two things that matter: no
+ *  tools are left, and the DELIVERABLE — not a plan — is the output. */
+const DEFAULT_SYNTHESIS_PROMPT =
+	"You have reached the step limit, so this is the last turn and every tool has been withdrawn. Write your final deliverable NOW, in the required format, using only the material you already have. Do not describe what you would do next, do not apologise, and do not ask questions.";
 
 export function subagentEngine(role: ModelRole, override?: PiEngine): PiEngine {
 	// BYOK (owner, 2026-09-22): no factory pins — the override is the only
@@ -86,7 +101,10 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 		// exits before the steering poll, exactly the old boolean-true).
 		finishTurn: (turn) => {
 			turns++;
-			return turns >= opts.maxTurns || opts.shouldStop?.(turn.message, turn.toolResults) === true
+			// `capped` is sticky: it records WHY the loop ended, so the synthesis
+			// turn below can tell a budget stop from a task stop.
+			if (turns >= opts.maxTurns) capped = true;
+			return capped || opts.shouldStop?.(turn.message, turn.toolResults) === true
 				? { action: "end" }
 				: undefined;
 		},
@@ -99,6 +117,7 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 	let step = 0;
 	let errorMessage: string | undefined;
 	let aborted = false;
+	let capped = false;
 	let runFailure: unknown;
 
 	try {
@@ -153,16 +172,48 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 	// 0.87.1: drop the seeded leading SystemMessage (transcript rework —
 	// see ui-stream's settleWith) before slicing past the input count, or
 	// the seed displaces the slice and the last INPUT message leaks in.
-	const newMessages = agent.state.messages
-		.filter((m) => (m as { role?: string }).role !== "system")
-		.slice(before);
-	const assistants = newMessages.filter((m) => (m as { role?: string }).role === "assistant") as AssistantMessage[];
-	const last = assistants[assistants.length - 1];
-	const text = last
-		? last.content
-				.filter((c): c is { type: "text"; text: string } => c.type === "text")
-				.map((c) => c.text)
-				.join("")
-		: "";
-	return { newMessages, text };
+	const snapshot = (): SubagentRunResult => {
+		const newMessages = agent.state.messages
+			.filter((m) => (m as { role?: string }).role !== "system")
+			.slice(before);
+		const assistants = newMessages.filter((m) => (m as { role?: string }).role === "assistant") as AssistantMessage[];
+		const last = assistants[assistants.length - 1];
+		const text = last
+			? last.content
+					.filter((c): c is { type: "text"; text: string } => c.type === "text")
+					.map((c) => c.text)
+					.join("")
+			: "";
+		return { newMessages, text };
+	};
+	let result = snapshot();
+
+	// Cap behaviour (2026-11-11): a run that spends its whole budget on tools has
+	// no text to hand back, and one that ends on narration hands back narration —
+	// both happened to the researcher in production (three of four jobs: "the
+	// researcher produced no text"). Withdraw every tool and take ONE last turn
+	// that can only write the deliverable.
+	if (opts.synthesizeOnCap && capped && errorMessage === undefined) {
+		agent.state.tools = [];
+		try {
+			await agent.prompt({
+				role: "user",
+				content: opts.synthesisPrompt ?? DEFAULT_SYNTHESIS_PROMPT,
+				timestamp: Date.now(),
+			});
+			const after = snapshot();
+			// Prefer the synthesis; if it stayed silent, keep whatever text the
+			// capped run had (possibly none — the caller's honest error stands).
+			result = after.text.trim() !== "" ? after : { newMessages: after.newMessages, text: result.text };
+		} catch (error) {
+			if (opts.abortSignal?.aborted) {
+				const err = new Error("aborted");
+				err.name = "AbortError";
+				throw err;
+			}
+			// A failed synthesis must not throw away the gathered material.
+			console.warn(`[subagent ${opts.role}] synthesis turn failed:`, error);
+		}
+	}
+	return result;
 }

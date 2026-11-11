@@ -100,6 +100,11 @@ export async function runResearcherAgent(prompt: string, opts: ResearcherRunOpti
 		engine: opts.engine,
 		systemPrompt: INSTRUCTIONS,
 		maxTurns: 12,
+		// The step budget is for SEARCHING; the brief is not optional. When the
+		// budget runs out mid-search the run gets one tool-less turn to write the
+		// deliverable (2026-11-11: three of four researcher jobs came back as "the
+		// researcher produced no text", one returned mid-search narration).
+		synthesizeOnCap: true,
 		abortSignal: opts.abortSignal,
 		onUsage: opts.onUsage,
 		onToolStart: opts.onToolStart,
