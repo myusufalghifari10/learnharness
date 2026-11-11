@@ -29,8 +29,11 @@ export interface SubagentRunOptions {
 	messages?: AgentMessage[];
 	/** Fresh-run prompt text (mutually exclusive with a continuation). */
 	prompt?: string;
-	/** Max model calls (the old stepCountIs safety net). */
-	maxTurns: number;
+	/** Model-call budget. `undefined` = NO cap: the run ends when the model
+	 *  itself stops asking for tools (owner ruling 2026-11-12: the researcher's
+	 *  12-turn cap was what threw away completed search work — a cap stays only
+	 *  where a caller names one). The abort path is still the real stop. */
+	maxTurns?: number;
 	/** Abort mid-model-call (the real-kill semantics). */
 	abortSignal?: AbortSignal;
 	/** Money channel: one call per model request. */
@@ -102,8 +105,9 @@ export async function runSubagent(tools: AgentTool<any, any>[], opts: SubagentRu
 		finishTurn: (turn) => {
 			turns++;
 			// `capped` is sticky: it records WHY the loop ended, so the synthesis
-			// turn below can tell a budget stop from a task stop.
-			if (turns >= opts.maxTurns) capped = true;
+			// turn below can tell a budget stop from a task stop. No maxTurns =
+			// no budget stop; only the task's own stop rule can end the run.
+			if (opts.maxTurns !== undefined && turns >= opts.maxTurns) capped = true;
 			return capped || opts.shouldStop?.(turn.message, turn.toolResults) === true
 				? { action: "end" }
 				: undefined;

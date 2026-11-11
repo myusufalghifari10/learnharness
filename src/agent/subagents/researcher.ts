@@ -99,11 +99,12 @@ export async function runResearcherAgent(prompt: string, opts: ResearcherRunOpti
 		prompt,
 		engine: opts.engine,
 		systemPrompt: INSTRUCTIONS,
-		maxTurns: 12,
-		// The step budget is for SEARCHING; the brief is not optional. When the
-		// budget runs out mid-search the run gets one tool-less turn to write the
-		// deliverable (2026-11-11: three of four researcher jobs came back as "the
-		// researcher produced no text", one returned mid-search narration).
+		// NO turn cap (owner ruling 2026-11-12). The old `maxTurns: 12` cut the
+		// run off mid-search and threw the work away: three of four production
+		// jobs ended "the researcher produced no text", and one that "finished"
+		// returned narration. The researcher now runs until it has a brief; the
+		// learner's END (abortSignal) is the stop.
+		// synthesizeOnCap stays as the shared safety net for callers that do cap.
 		synthesizeOnCap: true,
 		abortSignal: opts.abortSignal,
 		onUsage: opts.onUsage,
