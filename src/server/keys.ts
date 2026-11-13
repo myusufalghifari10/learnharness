@@ -186,8 +186,15 @@ export function keyValue(id: string): string | undefined {
 	// The fresh-user switch: ONLY the file store counts (belt-and-
 	// suspenders — the boot deletion already emptied the env; this guards
 	// any env key reintroduced after boot).
-	if (envKeysIgnored()) return authStore.authVars()[id];
-	return process.env[id] ?? authStore.authVars()[id];
+	const read = (key: string): string | undefined =>
+		envKeysIgnored() ? authStore.authVars()[key] : (process.env[key] ?? authStore.authVars()[key]);
+	const value = read(id);
+	if (value !== undefined) return value;
+	// ONE rename (owner 2026-11-12): the local-only builds stored the custom
+	// search endpoint under SEARXNG_URL before the Custom engine existed. The
+	// alias keeps an existing setup working; a new save writes the new id.
+	if (id === "CUSTOM_SEARCH_URL") return read("SEARXNG_URL");
+	return undefined;
 }
 
 /** The key-presence truth for one model provider (provider-key interlude,

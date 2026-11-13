@@ -211,21 +211,24 @@ export function ollamaProvider(apiKey: string, fetchFn: FetchLike = fetch): Sear
 	};
 }
 
-/** Self-hosted SearXNG JSON API (local-stack engine): GET <base>/search
- *  with format=json, results mapped to the provider-neutral SearchHit. The
- *  saved value is the instance's search URL — optionally carrying Basic
- *  credentials (http://user:pass@host/search), lifted into an Authorization
- *  header because fetch() rejects credential-bearing URLs. Requires `json`
- *  in the instance's search.formats. */
-export function searxngProvider(endpoint: string, fetchFn: FetchLike = fetch): SearchProvider {
+/** The CUSTOM engine (owner 2026-11-12): a self-hosted, SearXNG-compatible
+ *  JSON API. GET <base>/search with format=json, results mapped to the
+ *  provider-neutral SearchHit. The saved value is the instance's search URL —
+ *  optionally carrying Basic credentials (http://user:pass@host/search),
+ *  lifted into an Authorization header because fetch() rejects
+ *  credential-bearing URLs. Requires `json` in the instance's
+ *  search.formats. It is OPTIONAL: the five hosted engines above are the
+ *  default path, and a build with no endpoint set behaves exactly like
+ *  upstream. */
+export function customSearchProvider(endpoint: string, fetchFn: FetchLike = fetch): SearchProvider {
 	let base: URL;
 	try {
 		base = new URL(endpoint.trim());
 	} catch {
-		throw new Error("SearXNG endpoint must be an absolute http(s) URL, e.g. http://user:pass@host/search");
+		throw new Error("the custom search endpoint must be an absolute http(s) URL, e.g. http://user:pass@host/search");
 	}
 	if (base.protocol !== "http:" && base.protocol !== "https:") {
-		throw new Error("SearXNG endpoint must use http or https");
+		throw new Error("the custom search endpoint must use http or https");
 	}
 	const authorization = base.username
 		? `Basic ${Buffer.from(`${decodeURIComponent(base.username)}:${decodeURIComponent(base.password)}`, "utf8").toString("base64")}`
@@ -234,7 +237,7 @@ export function searxngProvider(endpoint: string, fetchFn: FetchLike = fetch): S
 	base.password = "";
 	if (!/\/search\/?$/.test(base.pathname)) base.pathname = `${base.pathname.replace(/\/$/, "")}/search`;
 	return {
-		id: "searxng",
+		id: "custom",
 		async search(query: string, count: number): Promise<SearchHit[]> {
 			const url = new URL(base.toString());
 			url.searchParams.set("q", query);
@@ -242,10 +245,10 @@ export function searxngProvider(endpoint: string, fetchFn: FetchLike = fetch): S
 			const headers: Record<string, string> = { accept: "application/json" };
 			if (authorization) headers.authorization = authorization;
 			const resp = await fetchFn(url.toString(), { headers, signal: AbortSignal.timeout(30_000) });
-			if (!resp.ok) throw new Error(`SearXNG search API ${resp.status}`);
-			const data = await searchJson(resp, "SearXNG");
+			if (!resp.ok) throw new Error(`custom search API ${resp.status}`);
+			const data = await searchJson(resp, "custom search");
 			if (!data || typeof data !== "object" || !Array.isArray((data as { results?: unknown }).results)) {
-				throw new Error("SearXNG search API returned an invalid response");
+				throw new Error("the custom search API returned an invalid response");
 			}
 			return (data as { results: unknown[] }).results
 				.flatMap((result): SearchHit[] => {
@@ -277,6 +280,8 @@ function searchHit(title: unknown, url: unknown, snippet: unknown): SearchHit[] 
 function engineKey(id: SearchEngineId): string | null {
 	const envVar = SEARCH_ENGINES.find((e) => e.id === id)?.envVar;
 	const value = envVar ? keyValue(envVar) : undefined;
+	// The legacy SEARXNG_URL id is folded into keyValue (src/server/keys.ts),
+	// so the retired pin keeps working through the same read as every key.
 	return value ? value : null;
 }
 
@@ -317,7 +322,7 @@ export function resolveSearchEngineFor(
 	return {
 		available: false,
 		engine: null,
-		reason: "no search engine configured — set a Tavily, Brave, Exa, Firecrawl, or Ollama search API key, or a SearXNG endpoint",
+		reason: "no search engine configured — set a Tavily, Brave, Exa, Firecrawl, or Ollama search API key, or a custom search endpoint",
 		key: null,
 	};
 }
@@ -355,8 +360,8 @@ export function searchProvider(): SearchProvider | null {
 			return firecrawlProvider(resolved.key);
 		case "ollama":
 			return ollamaProvider(resolved.key);
-		case "searxng":
-			return searxngProvider(resolved.key);
+		case "custom":
+			return customSearchProvider(resolved.key);
 		default:
 			return null;
 	}

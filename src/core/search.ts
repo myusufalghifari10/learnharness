@@ -35,7 +35,10 @@ export const SEARCH_ENGINES = [
 	{ id: "exa", label: "Exa", envVar: "EXA_API_KEY" },
 	{ id: "firecrawl", label: "Firecrawl", envVar: "FIRECRAWL_API_KEY" },
 	{ id: "ollama", label: "Ollama", envVar: "OLLAMA_API_KEY" },
-	{ id: "searxng", label: "SearXNG (local)", envVar: "SEARXNG_URL" },
+	// Owner 2026-11-12: the upstream list stays intact; a self-hosted
+	// SearXNG-compatible instance is an OPTIONAL sixth engine, never a
+	// requirement — a build with no local stack behaves exactly like upstream.
+	{ id: "custom", label: "Custom (SearXNG-compatible)", envVar: "CUSTOM_SEARCH_URL" },
 ] as const;
 
 export type SearchEngineId = (typeof SEARCH_ENGINES)[number]["id"];
@@ -43,6 +46,13 @@ export type SearchEngineId = (typeof SEARCH_ENGINES)[number]["id"];
 /** The read/write guards' membership check (settings record + PUT body). */
 export function isSearchEngineId(value: unknown): value is SearchEngineId {
 	return SEARCH_ENGINES.some((engine) => engine.id === value);
+}
+
+/** The saved pin, migrated: the local-only builds (before 2026-11-13) wrote
+ *  `searxng`; that engine is now `custom`. Unknown values stay unknown. */
+export function migrateSearchEngineId(value: unknown): SearchEngineId | undefined {
+	if (value === "searxng") return "custom";
+	return isSearchEngineId(value) ? value : undefined;
 }
 
 /** A live search engine: an id (for status/labels) + one operation. The

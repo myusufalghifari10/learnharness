@@ -67,10 +67,10 @@ export const AUTH_KEYS: readonly AuthKeyInfo[] = [
 		docsUrl: "https://ollama.com/settings/keys",
 	},
 	{
-		id: "SEARXNG_URL",
-		label: "SearXNG (local)",
-		description: "Self-hosted SearXNG instance used as the researcher's search engine. Paste the search URL, with Basic credentials when the instance needs them: http://user:pass@host/search",
-		docsUrl: "https://docs.searxng.org/",
+		id: "CUSTOM_SEARCH_URL",
+		label: "Custom search endpoint",
+		description: "Optional: a self-hosted SearXNG-compatible JSON API. Paste its search URL, with Basic credentials when the instance needs them: http://user:pass@host/search. Nothing else uses it — with no endpoint and no hosted key, search is unavailable.",
+		docsUrl: "https://docs.searxng.org/dev/search_api.html",
 	},
 ] as const;
 
@@ -209,7 +209,7 @@ export function validateKeyShape(id: string, rawValue: string): KeyShapeResult {
 		case "DEEPGRAM_API_KEY":
 			// No public format — the length floor only catches truncated pastes.
 			return nonEmpty(20);
-		case "SEARXNG_URL":
+		case "CUSTOM_SEARCH_URL":
 			// Not a secret: the instance's search URL, optionally with Basic creds.
 			return /^https?:\/\/[^\s]+$/.test(value)
 				? { ok: true }
