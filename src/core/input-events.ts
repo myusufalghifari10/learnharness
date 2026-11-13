@@ -35,6 +35,7 @@ import {
 	concludedByDismissalPair,
 	danglingQuestionOf,
 	newAnswerResult,
+	newInterjectionResult,
 	newNextMessage,
 	newProblemDismissedMarker,
 	newThinkingMessage,
@@ -63,7 +64,12 @@ export type ChatInput =
 	 *  explicit go-ahead during the between-problems pause — the Next
 	 *  chip or Enter on an empty composer. Practice sessions only, and
 	 *  only with nothing active (mid-problem input rides the dock). */
-	| { type: "next" };
+	| { type: "next" }
+	/** The learner's follow-up INSTEAD of answering (ask-while-asking,
+	 *  owner 2026-11-12): closes the pending question call with a deferral
+	 *  result so the model explains and re-issues the question. Never a
+	 *  graded answer; the call must still be dangling. */
+	| { type: "interject"; toolCallId: string; text: string };
 
 /** A wake-pipeline steer delivery — same turn composition, server-origin.
  *  Wave C (2026-09-26): the idle wake carries EVERY queued marker as its
@@ -197,6 +203,14 @@ export function parseChatInput(input: unknown): ChatInput {
 			return { type: "thinking", problemCallId: i.problemCallId, text: i.text };
 		case "next":
 			return { type: "next" };
+		case "interject":
+			if (typeof i.toolCallId !== "string" || i.toolCallId.length === 0) {
+				throw new ChatInputError("interject input requires toolCallId");
+			}
+			if (typeof i.text !== "string" || (i.text as string).trim().length === 0) {
+				throw new ChatInputError("interject input requires non-empty text");
+			}
+			return { type: "interject", toolCallId: i.toolCallId, text: i.text };
 		default:
 			throw new ChatInputError(`unknown input type: ${String(i.type)}`);
 	}
@@ -224,9 +238,27 @@ export function inputAppends(
 				throw new ChatInputError("answer input targets no pending question call");
 			}
 			return [newAnswerResult(input.toolCallId, pending.tool, input.answer)];
-		}
-		case "continue":
+		}		case "continue":
 			return dismissalConclusion(record);
+		case "interject": {
+			// Ask-while-asking (owner 2026-11-12): a follow-up is NOT an answer.
+			// The call closes with a deferral so the provider history stays valid
+			// and the model can re-issue the question; the same orphan discipline
+			// as an answer keeps a stale id from interrupting another question.
+			const pending = danglingQuestionOf(record.messages);
+			if (!pending || pending.toolCallId !== input.toolCallId) {
+				throw new ChatInputError("interject input targets no pending question call");
+			}
+			const questionText = (pending.input as { question?: unknown } | null)?.question;
+			return [
+				newInterjectionResult(
+					input.toolCallId,
+					pending.tool,
+					input.text,
+					typeof questionText === "string" ? questionText : "",
+				),
+			];
+		}
 		case "retry":
 			// The input already landed write-ahead. retryDrops affects only
 			// the temporary agent history — nothing new appends here.

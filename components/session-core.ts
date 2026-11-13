@@ -21,11 +21,13 @@ import {
 	failedResponseAtEnd,
 	measuredContextTokens,
 	newAnswerResult,
+	newInterjectionResult,
 	newNextMessage,
 	newProblemDismissedMarker,
 	newThinkingMessage,
 	newUserMessage,
 	projectView,
+	questionInputFingerprint,
 	type ChatInput,
 	type LhMarkerMessage,
 	type LhMessage,
@@ -33,6 +35,7 @@ import {
 	type LiveExecution,
 	type QuestionAnswerData,
 	type QuestionDraft,
+	type QuestionFormDraft,
 } from "../src/core";
 
 export type SessionStatus = "ready" | "submitted" | "streaming" | "error";
@@ -241,6 +244,11 @@ export class SessionModel {
 	private base: LhMessage[];
 	private tail: LhMessage[] = [];
 	private questionDrafts = new Map<string, QuestionDraft>();
+	/** The draft carry (ask-while-asking, owner 2026-11-12): a doubt closes a
+	 *  question, so drafts keyed to that call die with it. When the model
+	 *  re-issues the SAME question (identical fingerprint) the learner's typed
+	 *  answer must come back; one entry, one use. */
+	private carriedDraft: { fingerprint: string; form: QuestionFormDraft } | null = null;
 	/** Only learner answers submitted through send(), never silent dismissals. */
 	private unconfirmedAnswers = new Map<string, string>();
 	// The live turn's execution layer (view model mid-turn states):
@@ -712,6 +720,16 @@ export class SessionModel {
 			const result = { ...newAnswerResult(input.toolCallId, tool, input.answer), id: localId() };
 			optimistic.push(result);
 			this.unconfirmedAnswers.set(result.id, expectedKey ?? input.toolCallId);
+		} else if (input.type === "interject") {
+			// Ask-while-asking (owner 2026-11-12): the DEFERRAL result lands at
+			// once — the pending scan resolves, so the dock closes and the model's
+			// explanation streams exactly where an answer's reaction would.
+			const tool = pendingCallTool([...this.base, ...this.tail], input.toolCallId) ?? "quiz";
+			const question = pendingQuestionOf([...this.base, ...this.tail]);
+			const questionText = typeof (question?.input as { question?: unknown } | undefined)?.question === "string"
+				? ((question?.input as { question: string }).question)
+				: "";
+			optimistic.push({ ...newInterjectionResult(input.toolCallId, tool, input.text, questionText), id: localId() });
 		}
 		if (optimistic.length > 0) this.mutate(() => {
 			this.tail = [...this.tail, ...optimistic];
@@ -842,6 +860,36 @@ export class SessionModel {
 	submitAnswer(tool: string, toolCallId: string, output: QuestionAnswerData, questionKey?: string): Promise<void> {
 		void tool;
 		return this.send({ type: "answer", toolCallId, answer: output }, undefined, questionKey).then(() => undefined);
+	}
+
+	/**
+	 * Ask-while-asking (owner 2026-11-12): the learner's follow-up about the
+	 * pending question, sent INSTEAD of answering. The typed answer is kept for
+	 * the re-issued question: the carry is keyed by the question's fingerprint,
+	 * so an unchanged question hands the draft back and a changed one does not.
+	 */
+	interject(tool: string, toolCallId: string, text: string, questionKey?: string): Promise<void> {
+		void tool;
+		const body = text.trim();
+		if (!body) return Promise.resolve();
+		const pending = pendingQuestionOf([...this.base, ...this.tail]);
+		if (pending?.toolCallId === toolCallId) {
+			const key = questionKey ?? pending.key;
+			const form = this.questionDrafts.get(key)?.form;
+			if (form) this.carriedDraft = { fingerprint: questionInputFingerprint(pending.input), form };
+		}
+		return this.send({ type: "interject", toolCallId, text: body }, undefined, questionKey).then(() => undefined);
+	}
+
+	/** The one-shot draft carry for a re-issued question (ask-while-asking):
+	 *  returns the saved form only when the fingerprint matches the question the
+	 *  doubt interrupted, and consumes it so a LATER identical question never
+	 *  inherits a stale answer. */
+	takeCarriedDraft(fingerprint: string): QuestionFormDraft | undefined {
+		const carried = this.carriedDraft;
+		if (!carried || carried.fingerprint !== fingerprint) return undefined;
+		this.carriedDraft = null;
+		return carried.form;
 	}
 
 	/** The dismissal path (owner design 2026-10-03, "A2"): the skipped

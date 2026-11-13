@@ -178,6 +178,64 @@ export function newMessageId(): string {
 // ─── constructors (the input-event → native append mapping lives in
 //     core/input-events.ts; steers in core/contracts/jobs.ts) ─────────────────
 
+/** The learner asked a follow-up INSTEAD of answering the pending question
+ *  (ask-while-asking, owner 2026-11-12). The question call closes with this
+ *  DEFERRAL — never a graded answer — so the provider history stays valid (a
+ *  tool call needs its result before the next turn) and the model's NEXT
+ *  question is a fresh, answerable call. `details.interjection` is what the
+ *  view and the request-cause fold read; it is NOT a QuestionAnswerData. */
+export interface QuestionInterjection {
+	interjection: true;
+	/** The learner's follow-up, verbatim. */
+	text: string;
+	/** The question the doubt is about — the transcript card's subject. */
+	questionText: string;
+	/** The question tool that was interrupted (display only). */
+	tool: string;
+}
+
+export function isQuestionInterjection(details: unknown): details is QuestionInterjection {
+	if (typeof details !== "object" || details === null) return false;
+	const d = details as { interjection?: unknown; text?: unknown };
+	return d.interjection === true && typeof d.text === "string";
+}
+
+/** The model-facing deferral text (2026-11-12): what happened, and the RE-ASK
+ *  obligation that keeps the question from evaporating. */
+export function interjectionResultText(text: string): string {
+	return [
+		"The learner did NOT answer this question. Instead they asked a follow-up about it:",
+		"",
+		text,
+		"",
+		"Answer that follow-up directly, in the lesson's voice and at the same depth as the rest of the lesson. Then RE-ISSUE the question with the SAME question tool before you end your turn:",
+		"- If your explanation left the question unchanged, re-issue it VERBATIM (same question text, same options, same correct answer, same explanation).",
+		"- If the learner's follow-up changed what should be asked, re-issue the UPDATED question.",
+		"Never end the turn without a pending question unless the learner asked you to drop it.",
+	].join("\n");
+}
+
+/** The interjection's native append: ONE tool result closing the pending call.
+ *  The model reads the deferral text; the record and the UI read `details`. */
+export function newInterjectionResult(
+	toolCallId: string,
+	toolName: string,
+	text: string,
+	questionText: string,
+): LhMessage & ToolResultMessage {
+	const details: QuestionInterjection = { interjection: true, text, questionText, tool: toolName };
+	return {
+		id: newMessageId(),
+		role: "toolResult",
+		toolCallId,
+		toolName,
+		content: [{ type: "text", text: interjectionResultText(text) }],
+		details: details as unknown as ToolResultMessage["details"],
+		isError: false,
+		timestamp: Date.now(),
+	};
+}
+
 /** A learner-authored user message (text input, verdict note). */
 export function newUserMessage(text: string): LhMessage & UserMessage {
 	return {
@@ -855,6 +913,9 @@ export function nativeInputCause(message: AgentMessage, history: readonly AgentM
 		}
 		if (!(QUESTION_TOOLS as readonly string[]).includes(message.toolName) || message.isError || message.details == null || (message.details as { dismissed?: boolean }).dismissed) return "neutral";
 		const details = message.details as Partial<QuestionAnswerData>;
+		// The follow-up instead of an answer is still LEARNER input (ask-while-
+		// asking, 2026-11-12): a turn it triggered is foreground, never a wake.
+		if ((details as { interjection?: unknown }).interjection === true) return "learner";
 		if (!["quiz", "ask", "explain"].includes(details.kind ?? "") || typeof details.questionText !== "string" || typeof details.dontKnow !== "boolean" || !Array.isArray(details.answers) || typeof details.answeredAt !== "string") return "unrecognizable";
 		const calls = history.flatMap((m) => m.role === "assistant" ? m.content.filter((b) => b.type === "toolCall" && b.id === message.toolCallId) : []);
 		return calls.length === 1 && calls[0]?.type === "toolCall" && calls[0].name === message.toolName ? "learner" : "unrecognizable";

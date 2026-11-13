@@ -114,6 +114,14 @@ export function useChatSession({ chatId, initialMessages, initialError, initiall
 		(toolCallId: string, answer: QuestionAnswerData, questionKey?: string) => void model.dismissQuestion(toolCallId, answer, questionKey),
 		[model],
 	);
+	// Ask-while-asking (owner 2026-11-12): the doubt path + the one-shot draft
+	// carry for a re-issued question.
+	const interject = useCallback(
+		(tool: string, toolCallId: string, text: string, questionKey?: string) =>
+			void model.interject(tool, toolCallId, text, questionKey),
+		[model],
+	);
+	const takeCarriedDraft = useCallback((fingerprint: string) => model.takeCarriedDraft(fingerprint), [model]);
 	const dismissProblem = useCallback(
 		(problemCallId: string) => void model.dismissProblem(problemCallId),
 		[model],
@@ -139,6 +147,8 @@ export function useChatSession({ chatId, initialMessages, initialError, initiall
 		steer,
 		submitAnswer,
 		dismissQuestion,
+		interject,
+		takeCarriedDraft,
 		dismissProblem,
 		questionDraft,
 		saveQuestionDraft,

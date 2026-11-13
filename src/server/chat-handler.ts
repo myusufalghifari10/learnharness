@@ -345,7 +345,10 @@ export async function handleChatInput(
 	// the sibling question permanently pre-fix). Nothing else can generate
 	// while a question dangles (job wakes wait, continuation folds refuse,
 	// the composer gates), so adjacency holds by construction.
-	if (input.type === "answer" && hasUnresolvedQuestion([...record.messages, ...appends])) {
+	// Ask-while-asking (owner 2026-11-12): a DOUBT resolving one call of a
+	// parallel batch is the same shape — the reaction turn waits for the
+	// last sibling, exactly like an answer.
+	if ((input.type === "answer" || input.type === "interject") && hasUnresolvedQuestion([...record.messages, ...appends])) {
 		const merged = [...record.messages, ...appends];
 		try { stores.chatStore.saveMessages(chatId, merged); }
 		catch (err) {

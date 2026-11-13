@@ -555,6 +555,39 @@ export function toggleOther(mode: SelectMode, sel: DockSelection): DockSelection
 
 // ─── options ────────────────────────────────────────────────────────────────
 
+/**
+ * A question input's IDENTITY, for the draft carry (ask-while-asking, owner
+ * 2026-11-12): when a doubt closes a question and the model re-issues it, an
+ * UNCHANGED question hands the learner's typed answer back, while a changed
+ * one must not inherit an answer written for a different question. Key order
+ * and cosmetic whitespace never count as a change.
+ */
+export function questionInputFingerprint(input: unknown): string {
+	return stableJson(normalizeFingerprintValue(input));
+}
+
+function normalizeFingerprintValue(value: unknown): unknown {
+	if (typeof value === "string") return value.trim().replace(/\s+/g, " ");
+	if (Array.isArray(value)) return value.map(normalizeFingerprintValue);
+	if (value && typeof value === "object") {
+		const out: Record<string, unknown> = {};
+		for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+			out[key] = normalizeFingerprintValue((value as Record<string, unknown>)[key]);
+		}
+		return out;
+	}
+	return value;
+}
+
+function stableJson(value: unknown): string {
+	if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+	if (value && typeof value === "object") {
+		const keys = Object.keys(value as Record<string, unknown>).sort();
+		return `{${keys.map((key) => `${JSON.stringify(key)}:${stableJson((value as Record<string, unknown>)[key])}`).join(",")}}`;
+	}
+	return JSON.stringify(value) ?? "null";
+}
+
 export function normalizeOptions(
 	options: string | Array<{ label: string; value?: string; description?: string }> | undefined,
 ): QuizOption[] {

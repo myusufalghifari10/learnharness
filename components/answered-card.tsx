@@ -7,8 +7,37 @@ import { ThinkingBlock } from "@/components/thinking-block";
 import { PathText } from "@/components/file-path-chip";
 import { cn } from "@/lib/utils";
 import { ToolContentResponse } from "@/components/ai-elements/message";
-import type { QuestionAnswerData } from "@/src/core";
+import type { QuestionAnswerData, QuestionInterjection } from "@/src/core";
 import { answerForPresentation, parseAskInput, parseQuizInput } from "@/src/core";
+
+/**
+ * The DOUBT card (ask-while-asking, owner 2026-11-12): the learner asked a
+ * follow-up instead of answering, so the question call closed with a deferral
+ * — not a graded answer. It renders in the answered card's slot, keeping the
+ * question it was about plus his words, with no verdict anywhere.
+ */
+export function QuestionDoubtCard({ doubt }: { doubt: QuestionInterjection }) {
+	return (
+		<div
+			className="rounded-xl border border-dashed bg-card p-4 text-card-foreground"
+			data-testid="question-doubt-card"
+		>
+			<div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+				{doubt.tool === "probe" ? "Probe" : doubt.tool === "recall" ? "Recall" : doubt.tool === "explain" ? "Explain" : "Question"}
+				<span className="rounded bg-muted px-1.5 py-0.5">asked instead</span>
+			</div>
+			{doubt.questionText && (
+				<div className="mb-3 text-sm text-muted-foreground">
+					<ToolContentResponse>{doubt.questionText}</ToolContentResponse>
+				</div>
+			)}
+			<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Your question</div>
+			<div className="text-sm">
+				<ToolContentResponse>{doubt.text}</ToolContentResponse>
+			</div>
+		</div>
+	);
+}
 
 /**
  * Static rendering of an answered question (tool part in `output-available`).
