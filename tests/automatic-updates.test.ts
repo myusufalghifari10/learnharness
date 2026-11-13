@@ -116,7 +116,8 @@ function fixture({ packaged = true, updaterMissing = false } = {}) {
 		window: () => new FakeWindow(),
 		state: () => JSON.parse(JSON.stringify(run("updateState"))),
 		check: async (manual = false) => { run(`checkForUpdates({ manual: ${manual} })`); await Promise.resolve(); await Promise.resolve(); },
-		menuCheck: () => menu[0]!.submenu!.find(item => item.label === "Check for Updates…")!.click!(),
+		/** Every label in the application menu, flattened one level deep. */
+		menuLabels: () => (menu[0]?.submenu ?? []).map((item) => item.label ?? ""),
 	};
 }
 
@@ -270,30 +271,17 @@ describe("startup, timer, trusted IPC and menu wiring", () => {
 		assert.equal(f.updater.checks, 1);
 	});
 
-	it("menu restores/focuses a minimized window, opens General, and manually checks while OFF", async () => {
+	it("the app menu carries NO update entry — the local build never offers an update", async () => {
 		const f = fixture(); f.setSettings({ general: { autoUpdate: false } }); await f.run("main()");
-		const win = f.windows[0]!; win.webContents.loading = false; win.minimized = true;
-		f.menuCheck();
-		assert.equal(win.minimized, false); assert.equal(win.focused, true);
-		assert.ok(win.webContents.messages.some(message => message.channel === "lh:open-settings" && message.value === "general"));
+		// Local divergence (owner 2026-11-12): the application menu is about/hide/quit
+		// only; there is no manual update surface in the menu at all.
+		assert.ok(!f.menuLabels().includes("Check for Updates…"));
+		assert.ok(!f.menuLabels().some((label) => /update/i.test(label)));
+		// The dedicated IPC channel for a manual check still exists (Settings → General
+		// owns it); nothing checks on its own while the preference is OFF.
+		assert.equal(f.updater.checks, 0);
+		const sender = f.windows[0]!.webContents;
+		f.handles.get("lh:update:check")!({ sender, senderFrame: sender.mainFrame });
 		assert.equal(f.updater.checks, 1);
-	});
-
-	it("menu reopens a window and delivers General after load; loading existing windows are covered too", async () => {
-		const f = fixture(); f.setSettings({ general: { autoUpdate: false } }); await f.run("main()");
-		f.windows.length = 0; f.menuCheck();
-		assert.equal(f.windows.length, 1); assert.equal(f.updater.checks, 1);
-		const win = f.windows[0]!;
-		assert.ok(!win.webContents.messages.some(message => message.channel === "lh:open-settings"));
-		win.webContents.emit("did-finish-load");
-		assert.ok(win.webContents.messages.some(message => message.channel === "lh:open-settings"));
-		f.menuCheck(); win.webContents.emit("did-finish-load");
-		assert.equal(win.webContents.messages.filter(message => message.channel === "lh:open-settings").length, 2);
-	});
-
-	it("menu navigation failure does not prevent its manual check", async () => {
-		const f = fixture(); f.setSettings({ general: { autoUpdate: false } }); await f.run("main()");
-		f.windows[0]!.webContents.fails = true; f.windows[0]!.webContents.loading = false;
-		f.menuCheck(); assert.equal(f.updater.checks, 1);
 	});
 });

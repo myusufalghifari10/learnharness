@@ -567,26 +567,6 @@ function setupAutoUpdater() {
 	});
 }
 
-/** One result surface for manual checks. Preload buffers the navigation
- * request until React subscribes, including when all macOS windows closed. */
-function checkForUpdatesFromMenu() {
-	try {
-		const win = BrowserWindow.getAllWindows()[0] ?? reopenWindow?.();
-		if (win) {
-			if (win.isMinimized()) win.restore();
-			win.focus();
-			const openSettings = () => {
-				try { win.webContents.send("lh:open-settings", "general"); } catch { /* window closed */ }
-			};
-			if (win.webContents.isLoadingMainFrame()) win.webContents.once("did-finish-load", openSettings);
-			else openSettings();
-		}
-	} catch {
-		/* Navigation failure must not prevent the manual check. */
-	}
-	checkForUpdates({ manual: true });
-}
-
 function zoomStep(win, dir) {
 	const current = win.webContents.getZoomFactor();
 	const next =
@@ -610,8 +590,11 @@ function installMenu() {
 			label: app.name,
 			submenu: [
 				{ role: "about" },
-				// Manual checks report their result in Settings → General.
-				{ label: "Check for Updates…", click: () => checkForUpdatesFromMenu() },
+				// LOCAL BUILD (owner 2026-11-12, "mustahil akan saya update"): the
+				// manual "Check for Updates…" entry is deliberately gone. This build
+				// carries local features an upstream release would overwrite, and
+				// Settings → General already turns automatic checks off. Restore the
+				// entry (and checkForUpdatesFromMenu) to get upstream behaviour back.
 				{ type: "separator" },
 				{ role: "hide" },
 				{ role: "hideOthers" },
