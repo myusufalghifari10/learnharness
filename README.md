@@ -8,6 +8,36 @@
 
 <p align="center"><strong>An agent harness for learning.</strong></p>
 
+> ### This is a fork
+> This repository is **[myusufalghifari10/learnharness](https://github.com/myusufalghifari10/learnharness)**, a
+> personal fork of [amosblomqvist/learnharness](https://github.com/amosblomqvist/learnharness). It is **not** the
+> upstream project: upstream keeps the documentation site, releases, issues and support. Builds from this fork are
+> unsigned and do **not** auto-update (see the list below). Everything upstream documents still applies unless a
+> point in this list says otherwise.
+>
+> **What this fork changes, in one list**
+>
+> - **Ask while asking.** While a question is on screen you can send a doubt instead of an answer
+>   (`Answer` / `Ask first` toggle, plus an ask box under the collapsed question strip). The model is told the
+>   follow-up is a doubt, never a graded answer, and must re-issue the question (verbatim when unchanged) before
+>   ending its turn. Your typed answer is carried back when the re-issued question is identical.
+> - **Coding workspace.** The desktop coding pane is a single surface: Neovim full screen by default, and quitting
+>   Neovim hands the screen to the shell in the same workspace folder. `Mod+Shift+E` jumps between the coding
+>   workspace and the last learning session, from inside the terminal too, and the agent sees a live workspace
+>   status (read files, open them in the editor).
+> - **Web search.** The five upstream engines (Tavily, Brave, Exa, Firecrawl, Ollama) are the default again; a
+>   sixth, optional **Custom (SearXNG-compatible)** engine takes a self-hosted endpoint URL. No local stack is
+>   required to use this build.
+> - **Researcher.** No turn cap: a research job ends when the model finishes, not when a step counter runs out, and
+>   a budget-stopped run still yields a brief.
+> - **Display.** Code blocks the model flattened into one line are reopened at display time, so fenced code renders
+>   as code.
+> - **No manual update route.** The application menu no longer offers "Check for Updates…". Automatic checks are
+>   the product's own switch: turn them off in Settings → General (`general.autoUpdate: false` in
+>   `settings.json`) so an upstream release cannot overwrite the changes above. A fresh build from this fork still
+>   starts with them on, exactly like upstream.
+> - **English UI everywhere.** Every string added by this fork is English, matching the app.
+
 <p align="center">
   <a href="https://learnharness.ai">Download</a> ·
   <a href="#how-it-works">How it works</a> ·
@@ -51,11 +81,11 @@ Future teaching sessions can read the graph instead of starting from scratch. Pr
 - **Windows (x64):** run the installer. It is currently unsigned; Windows may show an “unknown publisher” or SmartScreen warning.
 - **Linux (x64):** make the AppImage executable and open it, or install the Debian/Ubuntu `.deb`.
 
-Choose your models, then start a session with what you want to understand. You can use provider API keys, supported subscription connections in the desktop app, an installed [Claude Code CLI](docs/claude-code.md), or a [custom OpenAI-compatible endpoint](docs/custom-providers.md), including a local model server. Optional dictation and web search use separate service keys. Web research can use a Tavily, Brave, Exa, Firecrawl, or Ollama key in Settings → Providers → Search. Ollama search uses its hosted service, not a local model server.
+Choose your models, then start a session with what you want to understand. You can use provider API keys, supported subscription connections in the desktop app, an installed [Claude Code CLI](docs/claude-code.md), or a [custom OpenAI-compatible endpoint](docs/custom-providers.md), including a local model server. Optional dictation and web search use separate service keys. Web research can use a Tavily, Brave, Exa, Firecrawl, or Ollama key, or a self-hosted SearXNG-compatible endpoint through the optional **Custom** engine, in Settings → Providers → Search. Ollama search uses its hosted service, not a local model server.
 
 See [Getting started](docs/getting-started.md) for model setup, dictation, files, and notes imports, and [context, caching, and costs](docs/compaction-accounting.md) for advanced cache preferences.
 
-All three platforms support in-app updates.
+Upstream releases auto-update on all three platforms; this fork's builds do not (see the fork notice above).
 
 ## Your keys, your data
 
@@ -74,7 +104,7 @@ npm test           # fixtures and fake providers
 
 See the [documentation index](docs/README.md) for all guides, [development](docs/development.md) for setup and checks, [architecture](docs/architecture.md) for the runtime, [keyboard shortcuts](docs/keyboard.md), and [desktop builds and releases](docs/desktop-release.md).
 
-Questions, bug reports, and feature requests: [GitHub Issues](https://github.com/amosblomqvist/learnharness/issues).
+Questions about the fork's changes belong in this repository's issues; upstream bugs and feature requests go to [upstream Issues](https://github.com/amosblomqvist/learnharness/issues).
 
 Security vulnerabilities: report privately as described in [SECURITY.md](SECURITY.md), not in public issues.
 
