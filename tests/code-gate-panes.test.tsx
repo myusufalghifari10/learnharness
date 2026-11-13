@@ -48,7 +48,7 @@ describe("F4 — the bridge-present branch renders every pane it is given", () =
 	it("the view really feeds it two panes, both inside the gate", () => {
 		const source = readFileSync(new URL("../components/code-view.tsx", import.meta.url), "utf8");
 		const gate = source.slice(source.indexOf("<CodeGate"), source.indexOf("</CodeGate>"));
-		const panes = gate.match(/<TerminalPane /g) ?? [];
+		const panes = gate.match(/<TerminalPane\s/g) ?? [];
 		assert.equal(panes.length, 2, "an added or lost pane is a layout change, not a silent pass");
 		assert.equal((gate.match(/\bkind="editor"/g) ?? []).length, 1);
 		assert.equal((gate.match(/\bkind="shell"/g) ?? []).length, 1);

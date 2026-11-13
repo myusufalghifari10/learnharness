@@ -27,7 +27,11 @@ describe("coding view without the desktop bridge", () => {
 		const source = readFileSync(new URL("../components/code-view.tsx", import.meta.url), "utf8");
 		assert.match(source, /window\.lh\?\.code/, "the bridge capability is detected");
 		assert.match(source, /<CodeGate bridge=\{hasBridge\}>/, "the no-bridge branch is the gate (the notice itself is render-tested in code-gate.test.tsx)");
-		assert.match(source, /<TerminalPane kind="editor"/, "the editor pane is the bridge branch");
-		assert.match(source, /<TerminalPane kind="shell"/, "the shell pane is the bridge branch");
+		// Owner 2026-11-12: one visible pane at a time, both mounted — the
+		// pins below match the props however they wrap.
+		assert.match(source, /<TerminalPane\b[^>]*\bkind="editor"/, "the editor pane is the bridge branch");
+		assert.match(source, /<TerminalPane\b[^>]*\bkind="shell"/, "the shell pane is the bridge branch");
+		assert.match(source, /active === "editor" \? "" : "hidden"/, "the editor hides when it is not the active pane");
+		assert.match(source, /active === "shell" \? "" : "hidden"/, "the shell hides when it is not the active pane");
 	});
 });

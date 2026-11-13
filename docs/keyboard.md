@@ -18,6 +18,7 @@ in-app cheat sheet. See [Getting started](getting-started.md) for setup.
 | New session | Mod+N |
 | Rename current session | F2 |
 | Toggle all your thinking in the session | Mod+T |
+| Coding workspace ↔ last session (also fires inside the terminal) | Mod+Shift+E |
 | Find in session / search graph or chains view | Mod+F |
 | Shortcut cheat sheet | ? |
 

@@ -75,6 +75,10 @@ export interface QuestionDockProps {
 	reveal?: boolean;
 	onExpand: () => void;
 	onSubmit: (output: QuestionAnswerData) => void;
+	/** Ask-while-asking (owner 2026-11-12): the learner's follow-up about this
+	 *  question, sent INSTEAD of answering. Absent = the ask affordance is not
+	 *  offered (old callers keep today's dock exactly). */
+	onInterject?: (text: string) => void;
 	/** Restore only this call's unconfirmed submission after recovery. */
 	initialDraft?: QuestionFormDraft;
 	onSaveDraft?: (draft: QuestionFormDraft) => void;
@@ -107,6 +111,7 @@ export function QuestionDock({
 	reveal = false,
 	onExpand,
 	onSubmit,
+	onInterject,
 	initialDraft,
 	onSaveDraft,
 	onEscape,
@@ -152,6 +157,17 @@ export function QuestionDock({
 					}
 				/>
 			)}
+			{/* Ask-while-asking, collapsed species (owner 2026-11-12): the doubt box
+			    sits directly UNDER the slim strip, so a question about the question
+			    needs no expand. It never opens the card. */}
+			{!expanded && onInterject && (
+				<AskBox
+					variant="collapsed"
+					onSend={onInterject}
+					disabled={compactionRunning}
+					label={canonical === "quiz" ? "Check" : canonical === "explain" ? "Explain" : "Question"}
+				/>
+			)}
 			<div className={expanded ? "dock-variant" : "invisible h-0 overflow-hidden"}>
 				<QuestionDockForm
 					toolName={toolName}
@@ -160,6 +176,7 @@ export function QuestionDock({
 					phase={phase}
 					active={expanded}
 					onSubmit={onSubmit}
+					onInterject={onInterject}
 					initialDraft={initialDraft}
 					onSaveDraft={onSaveDraft}
 					onEscape={onEscape}
@@ -182,6 +199,81 @@ function teaserText(q: string): string {
 		.replace(/[{}]/g, "")
 		.replace(/\s+/g, " ")
 		.trim();
+}
+
+/**
+ * Ask-while-asking (owner 2026-11-12): the doubt box. Two species — the
+ * collapsed one sits UNDER the slim question strip (a question about the
+ * question needs no expand), the expanded one replaces the answer controls
+ * when the dock's toggle is on `Ask first`. Enter sends, Shift+Enter makes a
+ * newline, exactly like the composer.
+ */
+function AskBox({
+	variant,
+	onSend,
+	disabled = false,
+	label,
+}: {
+	variant: "collapsed" | "expanded";
+	onSend: (text: string) => void;
+	disabled?: boolean;
+	label?: string;
+}) {
+	const [text, setText] = useState("");
+	const canSend = text.trim().length > 0 && !disabled;
+	const send = () => {
+		if (!canSend) return;
+		onSend(text.trim());
+		setText("");
+	};
+	const field = (
+		<PathInput
+			value={text}
+			onValueChange={setText}
+			onKeyDown={(e) => {
+				if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !e.shiftKey)) {
+					e.preventDefault();
+					send();
+				}
+			}}
+			placeholder={variant === "collapsed" ? "Ask about this question…" : "Ask about any part that is unclear…"}
+			className={cn(
+				"lh-input w-full resize-none bg-transparent outline-none placeholder:text-muted-foreground/70",
+				variant === "collapsed" ? "h-9 px-3 py-2 text-sm" : "field-sizing-content max-h-40 min-h-10 px-2.5 py-2",
+			)}
+		/>
+	);
+	if (variant === "collapsed") {
+		return (
+			<div data-testid="dock-ask-collapsed" className="dock-variant flex items-center gap-2 border-t border-border/60 px-3 py-1.5">
+				<span aria-hidden className="shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+					{label ? `${label} · ask` : "Ask"}
+				</span>
+				<div className="min-w-0 flex-1">{field}</div>
+				<Button type="button" size="xs" variant="ghost" disabled={!canSend} onClick={send} className="shrink-0">
+					Send
+				</Button>
+			</div>
+		);
+	}
+	return (
+		<div data-testid="dock-ask-expanded" className="border-t border-border/60 p-1.5">
+			<div className="rounded-[10px] border border-border/70 bg-background/60 transition-colors focus-within:border-primary/50">
+				<div className="px-2.5 pt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+					ASK FIRST
+				</div>
+				{field}
+				<div className="flex items-center justify-between gap-2 p-1">
+					<span aria-hidden className="pl-1.5 text-xs text-muted-foreground">
+						the question stays waiting · ↵ send · ⇧↵ newline
+					</span>
+					<Button type="button" disabled={!canSend} onClick={send} className="ml-auto h-9 rounded-[6px] px-3.5 text-sm font-medium">
+						Send question
+					</Button>
+				</div>
+			</div>
+		</div>
+	);
 }
 
 /** The collapsed strip. Two species (W5): "collapsed" is the scroll minimization
@@ -257,6 +349,7 @@ function QuestionDockForm({
 	phase = "probe",
 	active,
 	onSubmit,
+	onInterject,
 	initialDraft,
 	onSaveDraft,
 	onEscape,
@@ -264,6 +357,11 @@ function QuestionDockForm({
 	compactionRunning = false,
 }: Omit<QuestionDockProps, "expanded" | "onExpand" | "reveal">) {
 	const kind = toolQuestionKind(toolName);
+	// Ask-while-asking (owner 2026-11-12): the LEARNER owns the mode, and it
+	// always starts on the answer — asking is the deliberate detour. Switching
+	// back keeps every typed answer field (the answer body stays mounted below,
+	// just hidden), so a change of mind costs nothing.
+	const [mode, setMode] = useState<"answer" | "ask">("answer");
 
 	// Canonical QuestionData, built once per question. Quiz options are
 	// deterministically shuffled (seeded by toolCallId) so position never leaks
@@ -563,7 +661,8 @@ function QuestionDockForm({
 			    Capped by the measured column (--dock-max-h; the old fixed 55dvh cut
 			    long questions short — owner round, 2026-10-05). */}
 			<div data-dock-scroll-area="" data-session-find-root="" className="max-h-[var(--dock-max-h,55dvh)] overflow-y-auto px-4 pt-3">
-				<div className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+				<div className="mb-1 flex items-start justify-between gap-3">
+					<div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
 					{toolName === "probe"
 						? "Probe"
 						: toolName === "recall"
@@ -576,6 +675,37 @@ function QuestionDockForm({
 										? "Explain"
 											: "Question"}
 					{qd.mode === "multi-select" && " · select all that apply"}
+					</div>
+					{/* The mode switch (owner 2026-11-12): the learner decides, never the
+					    model. Default = answering, so the common path stays one click. */}
+					{onInterject && (
+						<div role="group" aria-label="Mode" className="flex shrink-0 items-center gap-1 rounded-md border border-border/70 p-0.5">
+							<button
+								type="button"
+								data-testid="dock-mode-answer"
+								aria-pressed={mode === "answer"}
+								onClick={() => setMode("answer")}
+								className={cn(
+									"rounded px-2 py-1 text-xs font-medium transition-colors",
+									mode === "answer" ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50",
+								)}
+							>
+								Answer
+							</button>
+							<button
+								type="button"
+								data-testid="dock-mode-ask"
+								aria-pressed={mode === "ask"}
+								onClick={() => setMode("ask")}
+								className={cn(
+									"rounded px-2 py-1 text-xs font-medium transition-colors",
+									mode === "ask" ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50",
+								)}
+							>
+								Ask first
+							</button>
+						</div>
+					)}
 				</div>
 				<div className="mb-3 font-medium">
 					<ToolContentResponse>{qd.question}</ToolContentResponse>
@@ -586,6 +716,7 @@ function QuestionDockForm({
 					</div>
 				)}
 
+				{mode === "answer" && (<>
 				{qd.mode !== "text" && (
 					<div className="flex flex-col gap-2 pb-2" role={qd.mode === "multi-select" ? "group" : "radiogroup"}>
 						{qd.options.map((opt, i) => {
@@ -737,6 +868,7 @@ function QuestionDockForm({
 						)}
 					</div>
 				)}
+				</>)}
 			</div>
 
 			{/* Confidence (owner, 2026-10-01; UI rounds same day): a snapped
@@ -751,7 +883,8 @@ function QuestionDockForm({
 				them). Keyboard: GLOBAL ←/→ (the ↑/↓ pattern; the ring is gone
 				app-wide). Clicking and dragging are native. "I don't know"
 				GRAYS it out — the layout holds, no value is sent, the IDK
-				signal stands alone. */}
+						signal stands alone. */}
+			{mode === "answer" && (<>
 			{kind === "quiz" && (
 				<div className="border-t border-border/60 px-4 py-2.5">
 					<div className="flex items-center gap-3">
@@ -925,6 +1058,12 @@ function QuestionDockForm({
 					</div>
 				</div>
 			</form>
+			</>)}
+			{/* Ask-while-asking, expanded species (owner 2026-11-12): the doubt field
+			    replaces the answer controls, pinned where the Submit row was. */}
+			{mode === "ask" && onInterject && (
+				<AskBox variant="expanded" onSend={onInterject} disabled={compactionRunning} />
+			)}
 		</div>
 	);
 }

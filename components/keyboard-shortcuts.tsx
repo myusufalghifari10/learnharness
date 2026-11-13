@@ -142,6 +142,13 @@ export function KeyboardShortcuts() {
 					e.preventDefault();
 					window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
 					break;
+				case "toggle-code":
+					// Owner 2026-11-12: the mounted surface decides the destination —
+					// a session sends you to /code, /code sends you back to the last
+					// session (components/code/mode-switch.ts owns that rule).
+					e.preventDefault();
+					window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
+					break;
 				default:
 					window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
 			}

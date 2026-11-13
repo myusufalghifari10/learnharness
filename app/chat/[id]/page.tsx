@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { Chat } from "@/components/chat";
+import { LastChatTracker } from "@/components/last-chat-tracker.tsx";
 import { slotsConfigured } from "@/src/core";
 import { compactionInFlight, getChat, isTurnRunning, readSettingsRecord, turnFailure } from "@/src/server";
 
@@ -20,7 +21,11 @@ export default async function ChatPage({
 	// server's 503 stays the truth; this only decides whether the pill rides.
 	const record = readSettingsRecord();
 	return (
-		<Chat
+		<>
+			{/* Owner 2026-11-12: this session is what mod+shift+e returns to, and
+			    the chord from here opens the coding workspace. */}
+			<LastChatTracker chatId={chat.id} />
+			<Chat
 			key={chat.id}
 			chatId={chat.id}
 			title={chat.title}
@@ -36,6 +41,7 @@ export default async function ChatPage({
 			// attach (busy shimmer + poll), never resurrect the stale record.
 			initiallyInFlight={isTurnRunning(chat.id)}
 			initiallyCompacting={compactionInFlight(chat.id)}
-		/>
+			/>
+		</>
 	);
 }

@@ -22,6 +22,7 @@
 import { useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { cn } from "@/lib/utils";
+import { actionForBinding, eventBinding, kbdEventForAction } from "@/src/core";
 import { releaseTerminalFocus, setTerminalFocus } from "./focus.ts";
 import { customKeyBytes } from "./keys.ts";
 import { observePaneSize } from "./pane-size.ts";
@@ -67,10 +68,42 @@ const THEME = {
 
 export type CodeSessionKind = "editor" | "shell";
 
-export function TerminalPane({ kind, scope, label, className, autoFocus = false }: { kind: CodeSessionKind; scope: string; label: string; className?: string; autoFocus?: boolean }) {
+export function TerminalPane({
+	kind,
+	scope,
+	label,
+	className,
+	autoFocus = false,
+	onExit,
+	focusToken,
+}: {
+	kind: CodeSessionKind;
+	scope: string;
+	label: string;
+	className?: string;
+	autoFocus?: boolean;
+	/** The child process ended (owner 2026-11-12: leaving nvim hands the screen
+	 *  to the terminal). Kept in a ref so the pty is never restarted by a
+	 *  re-render — the boot effect's deps stay stable on purpose. */
+	onExit?: (code: number) => void;
+	/** Bumped by the parent when this pane becomes the visible one: focus the
+	 *  terminal without remounting it. */
+	focusToken?: number;
+}) {
 	const hostRef = useRef<HTMLDivElement | null>(null);
 	const paneRef = useRef<HTMLElement | null>(null);
 	const [status, setStatus] = useState("starting…");
+	const onExitRef = useRef<((code: number) => void) | undefined>(onExit);
+	onExitRef.current = onExit;
+	const termRef = useRef<{ focus: () => void } | null>(null);
+
+	// Focus follows the parent's choice of visible pane; the boot effect is
+	// deliberately NOT in this dependency chain (a remount would kill the pty
+	// and the nvim session with it).
+	useEffect(() => {
+		if (focusToken === undefined) return;
+		termRef.current?.focus();
+	}, [focusToken]);
 
 	useEffect(() => {
 		const host = hostRef.current;
@@ -142,6 +175,7 @@ export function TerminalPane({ kind, scope, label, className, autoFocus = false 
 				if (!sessionId || payload?.id !== sessionId) return;
 				setStatus(`exited (${payload.code})`);
 				term.write(`\r\n\x1b[90m[process exited with code ${payload.code}]\x1b[0m\r\n`);
+				onExitRef.current?.(payload.code);
 			}));
 
 			const started = await bridge.start({ kind, scope, cols: term.cols, rows: term.rows });
@@ -158,6 +192,7 @@ export function TerminalPane({ kind, scope, label, className, autoFocus = false 
 			const session = started.id ?? expectedId;
 			sessionId = session;
 			setStatus(kind === "editor" ? "nvim" : "shell");
+			termRef.current = term;
 
 			const dataSubscription = term.onData((data) => bridge.write({ id: session, data }));
 			cleanups.push(() => dataSubscription.dispose());
@@ -169,6 +204,14 @@ export function TerminalPane({ kind, scope, label, className, autoFocus = false 
 			// those two chords, write the byte they mean, and let every other key keep
 			// xterm's own mapping.
 			term.attachCustomKeyEventHandler((event) => {
+				// The global dispatcher stands down while a pane has focus
+				// (components/code/focus.ts), so the code/session chord is
+				// re-dispatched HERE — leaving nvim by keyboard must not
+				// require the mouse. The registry stays the one source of truth.
+				if (actionForBinding(eventBinding(event)) === "toggle-code") {
+					window.dispatchEvent(new CustomEvent(kbdEventForAction("toggle-code")));
+					return false;
+				}
 				const bytes = customKeyBytes(event);
 				if (bytes === null) return true;
 				bridge.write({ id: session, data: bytes });
