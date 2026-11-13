@@ -1,7 +1,9 @@
 /** One import request: file bytes plus a bounded allowance for multipart metadata. */
 export const MAX_IMPORT_BYTES = 25 * 1024 * 1024;
 export const MAX_IMPORT_BODY_BYTES = 26 * 1024 * 1024;
-export const IMPORT_EXTENSIONS = /\.(?:md|markdown|txt|pdf)$/i;
+export const IMPORT_EXTENSIONS = /\.(?:md|markdown|txt|pdf|json|docx|pptx|html?|csv|tsv|rtf|srt|vtt)$/i;
+/** The file picker's filter, kept in step with IMPORT_EXTENSIONS by a test. */
+export const IMPORT_ACCEPT = ".md,.markdown,.txt,.pdf,.json,.docx,.pptx,.html,.htm,.csv,.tsv,.rtf,.srt,.vtt";
 
 /** Contributor's relative-path contract: identity only, never a disk path.
  * Chromium may serialize the basename or the full webkitRelativePath. */

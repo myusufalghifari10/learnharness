@@ -5,6 +5,7 @@ import { afterEach, it } from "node:test";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
+import { IMPORT_ACCEPT } from "../lib/notes-import-limits.ts";
 import { MAX_IMPORT_BYTES, NotesImportControl, NotesImportErrors, NotesImportNotices, parseNotesImportResults, postNotesImport, useNotesImport, type NotesImportResult } from "../components/notes-import.tsx";
 
 const dom = parseHTML("<html><body></body></html>");
@@ -139,9 +140,14 @@ it("25 MiB is per file, not per selection; oversized files fail locally while sm
 	await submit([new File([new Uint8Array(MAX_IMPORT_BYTES + 1)], "textbook.pdf"), new File([half], "a.pdf"), new File([half], "b.pdf")]);
 	assert.deepEqual(sent, ["a.pdf", "b.pdf"]); assert.deepEqual(current.errors, ["textbook.pdf: Too big. Max 25 MB."]);
 });
-it("picker stays enabled during imports, offers Files/Folder, and keeps PDF support", () => {
+it("picker stays enabled during imports, offers Files/Folder, and offers every supported format", () => {
 	const html = renderToStaticMarkup(<NotesImportControl importing onImportFiles={() => {}} />);
-	assert.match(html, /webkitdirectory/); assert.match(html, /accept=".md,.markdown,.txt,.pdf"/); assert.doesNotMatch(html, /disabled/);
+	assert.match(html, /webkitdirectory/);
+	// The picker's filter is IMPORT_ACCEPT (owner, 2026-11-14): the PDF family
+	// plus Word, PowerPoint, JSON, HTML, CSV/TSV, RTF and subtitles.
+	assert.ok(html.includes(`accept="${IMPORT_ACCEPT}"`));
+	for (const extension of [".pdf", ".docx", ".pptx", ".json", ".html", ".csv", ".rtf", ".srt"]) assert.ok(IMPORT_ACCEPT.includes(extension), extension);
+	assert.doesNotMatch(html, /disabled/);
 });
 it("graph menu clearly distinguishes extraction from lesson material, above unchanged Files/Folder choices", async () => {
 	const selected: unknown[] = [];

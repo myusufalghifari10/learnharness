@@ -10,6 +10,7 @@ import type { GraphStore } from "../src/core/ports.ts";
 import type { GraphNode, GraphChain, NotesSource, SessionCheckpoint } from "../src/core/contracts.ts";
 import { tinyPdf } from "./helpers/tiny-pdf.ts";
 import { MAX_IMPORT_BODY_BYTES, MAX_IMPORT_BYTES } from "../lib/notes-import-limits.ts";
+import { MAX_NOTES_CHARS } from "../src/server/notes-formats/convert.ts";
 
 const original = extraction.importNotes;
 after(() => { extraction.importNotes = original; });
@@ -193,8 +194,13 @@ it("server accepts exactly 25 MiB of files with multipart overhead below 26 MiB"
 	extraction.importNotes = async ({ text }) => { received = text.length; return { nodes: 0, chains: 0 }; };
 	const response = await POST(upload([{ name: "boundary.txt", bytes: new Uint8Array(MAX_IMPORT_BYTES) }]));
 	assert.equal(response.status, 200);
-	assert.equal(received, MAX_IMPORT_BYTES);
-	assert.equal((await response.json()).results[0].outcome, "completed");
+	// The upload passes the byte bound; the TEXT that reaches the extractor is
+	// capped at MAX_NOTES_CHARS (owner, 2026-11-14) so one 25 MiB dump cannot
+	// turn into millions of tokens.
+	assert.equal(received, MAX_NOTES_CHARS);
+	const [result] = (await response.json()).results;
+	assert.equal(result.outcome, "completed");
+	assert.match(result.notice, /Only the first 2,000,000 characters were read\./);
 });
 
 for (const declared of [undefined, "1"]) it(`server bounds streamed body bytes with ${declared ? "a misleading" : "no"} Content-Length and cancels oversize streams`, async () => {

@@ -12,6 +12,7 @@ export * from "./source-organization.ts";
 export * from "./source-deletion.ts";
 export { NotesImportError } from "../agent/subagents/extraction.ts";
 export { convertPdf } from "../agent/subagents/pdf-ops.ts";
+export { convertNotes, MAX_NOTES_CHARS, type NotesConversion } from "./notes-formats/convert.ts";
 export { joinPages } from "../agent/subagents/pdf-markdown.ts";
 export * from "./commit-positions.ts";
 export * from "./jobs.ts";
