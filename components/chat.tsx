@@ -20,7 +20,7 @@ import { Shimmer } from "@/components/ai-elements/shimmer";
 import { BrailleSpinner } from "@/components/braille-spinner";
 import { LiveToolCard } from "@/components/artifacts/live-tool-card";
 import { Separator } from "@/components/ui/separator";
-import { AnsweredCard } from "@/components/answered-card";
+import { AnsweredCard, QuestionDoubtCard } from "@/components/answered-card";
 import { MalformedQuestion } from "@/components/malformed-question";
 import { artifactRenderers } from "@/components/artifacts";
 import { SubagentSteerCard } from "@/components/artifacts/steer-card";
@@ -40,6 +40,8 @@ import {
 	isProviderKeyRefusal,
 	firstSourceTextParts,
 	cliContextWindowOf,
+	isQuestionInterjection,
+	questionInputFingerprint,
 	messageAnchorId,
 	textPartMessageId,
 	kbdEventForAction as kbdEventForChat,
@@ -257,7 +259,7 @@ export function Chat({
 	// (core/view.ts projectView); sends are ONE explicit input event each
 	// ({chatId, input} — the stash indirection died with the SDK), and the
 	// turn stream is the VERBATIM AgentEvent passthrough the server emits.
-	const { messages, nativeMessages, hasConfirmedConversation, contextTokens, send, continueIfOwed, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, questionDraft, saveQuestionDraft, setMessages, adoptRecord, status, error, stop, clearError, resumeStream, setReattachSettled } =
+	const { messages, nativeMessages, hasConfirmedConversation, contextTokens, send, continueIfOwed, steer, steerQueue, submitAnswer, dismissQuestion, dismissProblem, interject, takeCarriedDraft, questionDraft, saveQuestionDraft, setMessages, adoptRecord, status, error, stop, clearError, resumeStream, setReattachSettled } =
 		useChatSession({ chatId, initialMessages, initialError, initiallyInFlight });
 
 	const sessionFindScopeRef = useRef<HTMLDivElement | null>(null);
@@ -451,6 +453,20 @@ export function Chat({
 	}, []);
 
 	const pending = findPendingToolCall(messages, pendingQuestionOf(nativeMessages));
+	// The draft carry (ask-while-asking, 2026-11-12): a doubt closes the
+	// question, and the model re-issues it. An IDENTICAL re-issue hands the
+	// learner's typed answer back (the fingerprint match is the whole test);
+	// a changed question starts clean. One consumption per pending key — the
+	// take is one-shot in the model too, the ref just keeps renders honest.
+	const carriedForRef = useRef<string | null>(null);
+	const carriedQuestionDraft = useMemo(() => {
+		if (!pending) return undefined;
+		const saved = questionDraft(pending.key)?.form;
+		if (saved) return saved;
+		if (carriedForRef.current === pending.key) return undefined;
+		carriedForRef.current = pending.key;
+		return takeCarriedDraft(questionInputFingerprint(pending.input));
+	}, [pending?.key, pending?.input, questionDraft, takeCarriedDraft, pending]);
 	const malformedQuestions = malformedQuestionsOf(nativeMessages);
 	// The abort handler reads the pending question from a ref (the window
 	// listener is mount-scoped; the value it needs is render-scoped).
@@ -1599,6 +1615,12 @@ export function Chat({
 														// Pending/streaming questions live in the dock, not the
 														// transcript; answered ones render as graded records.
 														if (part.state === "output-available") {
+															// A doubt instead of an answer (ask-while-asking, 2026-11-12):
+															// the call closed with a deferral, not QuestionAnswerData —
+															// it gets its own card, never the graded one.
+															if (isQuestionInterjection(part.output)) {
+																return <QuestionDoubtCard key={pi} doubt={part.output} />;
+															}
 															return (
 																<AnsweredCard key={pi} answer={part.output as QuestionAnswerData} input={part.input} />
 															);
@@ -1693,8 +1715,9 @@ export function Chat({
 				    fold) and NEVER overlaps the composer. */}
 				<DockOverlay
 					pending={pending}
-					initialQuestionDraft={pending ? questionDraft(pending.key)?.form : undefined}
+					initialQuestionDraft={carriedQuestionDraft}
 					onSaveQuestionDraft={(form) => { if (pending) saveQuestionDraft(pending.key, { form }); }}
+					onInterject={pending ? (text) => void interject(pending.tool, pending.toolCallId, text, pending.key) : undefined}
 					practice={activeProblem}
 					compactionRunning={compacting}
 					onSubmitThinking={submitThinking}
@@ -1929,6 +1952,7 @@ function DockOverlay({
 	pending,
 	initialQuestionDraft,
 	onSaveQuestionDraft,
+	onInterject,
 	practice,
 	compactionRunning,
 	onSubmitThinking,
@@ -1956,6 +1980,9 @@ function DockOverlay({
 	pending: ReturnType<typeof pendingQuestionOf>;
 	initialQuestionDraft?: QuestionFormDraft;
 	onSaveQuestionDraft: (draft: QuestionFormDraft) => void;
+	/** Ask-while-asking (owner 2026-11-12): the learner's follow-up about the
+	 *  pending question, sent INSTEAD of answering it. */
+	onInterject?: (text: string) => void;
 	/** Compaction running for this chat (round 14) — the docks' submit
 	 *  affordance gate (the server's registry is the real one). */
 	compactionRunning: boolean;
@@ -2402,6 +2429,7 @@ function DockOverlay({
 									phase={phase}
 									onExpand={expandAndReveal}
 									onSubmit={onSubmitAnswer}
+									onInterject={onInterject}
 									initialDraft={initialQuestionDraft}
 									onSaveDraft={onSaveQuestionDraft}
 									onEscape={dictationCancel}
