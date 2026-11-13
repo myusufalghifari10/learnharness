@@ -146,7 +146,10 @@ export function KeyboardShortcuts() {
 					// Owner 2026-11-12: the mounted surface decides the destination —
 					// a session sends you to /code, /code sends you back to the last
 					// session (components/code/mode-switch.ts owns that rule).
+					// A held chord auto-repeats keydown; a repeat must not toggle
+					// again (the reproduced bug: chat -> /code -> chat).
 					e.preventDefault();
+					if (e.repeat) return;
 					window.dispatchEvent(new CustomEvent(kbdEventForAction(action)));
 					break;
 				default:

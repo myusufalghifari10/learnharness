@@ -101,3 +101,4 @@ describe("A3: the chord is a registry action, not a pane-local guess", () => {
 		assert.equal(actionForBinding(eventBinding(key({ key: "f", code: "KeyF", ctrlKey: true, shiftKey: true }))), "sessions-search");
 	});
 });
+

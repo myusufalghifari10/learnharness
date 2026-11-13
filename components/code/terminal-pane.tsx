@@ -24,7 +24,7 @@ import "@xterm/xterm/css/xterm.css";
 import { cn } from "@/lib/utils";
 import { actionForBinding, eventBinding, kbdEventForAction } from "@/src/core";
 import { releaseTerminalFocus, setTerminalFocus } from "./focus.ts";
-import { customKeyBytes } from "./keys.ts";
+import { customKeyBytes, toggleChordIntent } from "./keys.ts";
 import { observePaneSize } from "./pane-size.ts";
 
 const FONT_FAMILY = '"JetBrainsMono Nerd Font Mono", "Symbols Nerd Font Mono", "JetBrains Mono", monospace';
@@ -208,8 +208,11 @@ export function TerminalPane({
 				// (components/code/focus.ts), so the code/session chord is
 				// re-dispatched HERE — leaving nvim by keyboard must not
 				// require the mouse. The registry stays the one source of truth.
-				if (actionForBinding(eventBinding(event)) === "toggle-code") {
-					window.dispatchEvent(new CustomEvent(kbdEventForAction("toggle-code")));
+				// xterm hands us keydown AND keyup; the intent decides whether this
+				// event toggles (once per press), is swallowed, or belongs to xterm.
+				const intent = toggleChordIntent(actionForBinding(eventBinding(event)) === "toggle-code", event);
+				if (intent !== "pass") {
+					if (intent === "dispatch") window.dispatchEvent(new CustomEvent(kbdEventForAction("toggle-code")));
 					return false;
 				}
 				const bytes = customKeyBytes(event);

@@ -7,7 +7,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { CTRL_SLASH_BYTES, customKeyBytes } from "../components/code/keys.ts";
+import { CTRL_SLASH_BYTES, customKeyBytes, toggleChordIntent } from "../components/code/keys.ts";
 
 const down = (init: Record<string, unknown>) => ({ type: "keydown", ctrlKey: false, altKey: false, metaKey: false, ...init });
 
@@ -50,5 +50,25 @@ describe("customKeyBytes — the chords xterm cannot encode", () => {
 		assert.equal(customKeyBytes({ type: "keyup", ctrlKey: true, key: "/" }), null);
 		assert.equal(customKeyBytes({ type: "keypress", ctrlKey: true, key: "/" }), null);
 		assert.equal(customKeyBytes({ ctrlKey: true, key: "/" }), null, "no type = not a keydown");
+	});
+});
+
+describe("toggleChordIntent — one toggle per press (bug 2026-11-13)", () => {
+	it("dispatches exactly once: the keydown, never its keyup", () => {
+		assert.equal(toggleChordIntent(true, { type: "keydown" }), "dispatch");
+		// xterm calls attachCustomKeyEventHandler for the release too; that was the
+		// bug (chat -> /code -> chat on keyup).
+		assert.equal(toggleChordIntent(true, { type: "keyup" }), "swallow");
+		assert.equal(toggleChordIntent(true, { type: "keypress" }), "swallow");
+	});
+
+	it("swallows auto-repeat so a held chord cannot bounce back", () => {
+		assert.equal(toggleChordIntent(true, { type: "keydown", repeat: true }), "swallow");
+		assert.equal(toggleChordIntent(true, { type: "keydown", repeat: undefined }), "dispatch");
+	});
+
+	it("leaves every other keystroke to xterm", () => {
+		assert.equal(toggleChordIntent(false, { type: "keydown" }), "pass");
+		assert.equal(toggleChordIntent(false, { type: "keyup" }), "pass");
 	});
 });

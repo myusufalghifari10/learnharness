@@ -44,3 +44,25 @@ export function customKeyBytes(event: KeyEventLike): string | null {
 	if (event.key === "/" || event.key === "_") return CTRL_SLASH_BYTES;
 	return null;
 }
+
+/**
+ * What one xterm event means for the code/session chord (owner 2026-11-13).
+ *
+ * xterm calls `attachCustomKeyEventHandler` for BOTH keydown and keyup. The
+ * release of a press therefore arrived as a second, non-repeated event with the
+ * same chord — it was handled, re-dispatched, and the app bounced back to the
+ * session it had just left (reproduced: chat → /code → chat on key release).
+ *
+ *  - not the chord at all → "pass": xterm keeps the keystroke.
+ *  - the chord, but a keyup or an auto-repeat → "swallow": xterm must not see
+ *    it and nobody navigates.
+ *  - exactly one keydown → "dispatch": the toggle fires once per press.
+ */
+export function toggleChordIntent(
+	isToggle: boolean,
+	event: KeyEventLike & { repeat?: boolean },
+): "pass" | "swallow" | "dispatch" {
+	if (!isToggle) return "pass";
+	if (event.type !== "keydown" || event.repeat) return "swallow";
+	return "dispatch";
+}
