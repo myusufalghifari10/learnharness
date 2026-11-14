@@ -147,6 +147,26 @@ describe("json — a question bank becomes labelled records", () => {
 		assert.match(text, /## 2\nid: saa-002/);
 	});
 
+	it("survives null fields — the shape a real export actually has (bug 2026-11-14)", () => {
+		// The owner's certsafari export carries "select": null in 34 of 35 records;
+		// Object.entries(null) used to throw and the whole file was refused with
+		// "Cannot convert undefined or null to object".
+		const text = jsonToText(JSON.stringify([
+			{ id: "saa-001", text: "Which service is regional?", select: null, options: [{ id: "a", text: "EC2" }, { id: "b", text: "S3" }], answer: "a" },
+			{ id: "saa-002", text: "Nulls inside arrays", options: [null, { id: "a", text: "IAM" }], extra: null },
+		]));
+		assert.match(text, /## 1\nid: saa-001/);
+		assert.match(text, /answer: a/);
+		assert.match(text, /## 2\nid: saa-002/);
+		assert.match(text, /text: IAM/);
+		assert.doesNotMatch(text, /select:/, "a null field is omitted, not printed as null");
+	});
+
+	it("survives a null record and a null document", () => {
+		assert.match(jsonToText(JSON.stringify([null, { id: "x" }])), /id: x/);
+		assert.throws(() => jsonToText("null"), JsonTextError);
+	});
+
 	it("refuses broken JSON with a sentence, not a stack", () => {
 		assert.throws(() => jsonToText("{ not json"), (error: unknown) => error instanceof JsonTextError && /Could not read this JSON file/.test(error.message));
 	});

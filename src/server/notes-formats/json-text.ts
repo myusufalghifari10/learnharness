@@ -24,6 +24,10 @@ const scalar = (value: unknown): string | null => {
 };
 
 function render(value: unknown, depth: number, indent: string): string[] {
+	// `typeof null === "object"`, and a real bank (the owner's certsafari export,
+	// 2026-11-14) carries `"select": null` in 34 of 35 records: without this
+	// line Object.entries(null) throws and the whole file is refused.
+	if (value === null || value === undefined) return [];
 	if (depth > MAX_DEPTH) {
 		const flat = scalar(value);
 		return flat === null ? [] : [`${indent}${flat}`];
